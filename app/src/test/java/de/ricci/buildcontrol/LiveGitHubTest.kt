@@ -20,7 +20,9 @@ class LiveGitHubTest {
     }
     @Test fun bothRealProjectsExposeRunnerConfigurationWithoutAdministrationAccess(){
         assumeTrue("Live read runs only in GitHub Actions", System.getenv("MTX_LIVE_READ") == "true")
-        val api=GitHub(requireNotNull(System.getenv("GH_READ_TOKEN")))
+        // The CI token belongs to MTXBuildControl only. These two repositories
+        // are public; read their real configuration without that unrelated token.
+        val api=GitHub("")
         listOf(Project("mellowtraxer/RiccisTidalPlaylistCreator","feature/mtx-studio-core"),
             Project("mellowtraxer/GarminSleepTasker","sleepsync-compose-v2")).forEach{project->
             val snapshot=api.snapshot(project)

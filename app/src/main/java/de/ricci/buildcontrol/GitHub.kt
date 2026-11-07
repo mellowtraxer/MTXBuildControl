@@ -58,7 +58,8 @@ class GitHub(private val token: String, private val base: String = "https://api.
     fun snapshot(p: Project): Snapshot {
         json("repos/${p.repo}/branches/${enc(p.branch)}")
         val notes = mutableListOf<String>()
-        val registered = list("repos/${p.repo}/actions/workflows", "workflows")
+        val registered = runCatching { list("repos/${p.repo}/actions/workflows", "workflows") }
+            .onFailure { if(it is ApiException&&it.status==401)throw it; notes += "Workflow-Übersicht gerade nicht verfügbar: ${it.message}" }.getOrDefault(emptyList())
         val directory = try { list("repos/${p.repo}/contents/.github/workflows?ref=${enc(p.branch)}", "items") }
             catch(e: ApiException) { if(e.status == 404) { notes += "Keine Workflow-Dateien auf diesem Branch."; emptyList() } else throw e }
         val files = directory.filter { it.optString("name").endsWith(".yml") || it.optString("name").endsWith(".yaml") }
@@ -76,7 +77,8 @@ class GitHub(private val token: String, private val base: String = "https://api.
             if (WorkflowReader.wired(texts)) raw else { notes += "Runner-Datei vorhanden, aber kein kompatibler Auswahl-Workflow erkannt."; null }
         } catch(e: ApiException) { if (e.status != 404) notes += e.message.orEmpty(); null }
         val runnerResult = runCatching { runners(p) }
-        val builds = list("repos/${p.repo}/actions/runs?branch=${enc(p.branch)}&exclude_pull_requests=true", "workflow_runs", 30).take(30).map { o -> Build(o.getLong("id"),o.getLong("run_number"),o.optString("name"),o.getString("status"),o.optString("conclusion"),o.optString("head_branch"),o.getString("head_sha"),o.getString("html_url"),o.optString("run_started_at"),o.getString("updated_at")) }
+        val builds = runCatching { list("repos/${p.repo}/actions/runs?branch=${enc(p.branch)}&exclude_pull_requests=true", "workflow_runs", 30).take(30).map { o -> Build(o.getLong("id"),o.getLong("run_number"),o.optString("name"),o.getString("status"),o.optString("conclusion"),o.optString("head_branch"),o.getString("head_sha"),o.getString("html_url"),o.optString("run_started_at"),o.getString("updated_at")) } }
+            .onFailure { if(it is ApiException&&it.status==401)throw it; notes += "Build-Übersicht gerade nicht verfügbar: ${it.message}" }.getOrDefault(emptyList())
         val assets = mutableListOf<PackageAsset>()
         runCatching {
             list("repos/${p.repo}/releases", "items", 20).take(20).forEach { release ->

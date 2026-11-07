@@ -56,19 +56,21 @@ class RunnerPolicyTest {
             assertTrue(requests.none{it.path!!.contains("/actions/runners")})
         }
     }
-    @Test fun runnerReadDeniedDoesNotDisableConfiguredProject(){
+    @Test fun monitorAndRunnerReadDeniedDoNotDisableConfiguredProject(){
         MockWebServer().use{s->
             s.enqueue(MockResponse().setBody("{}")) // branch
-            s.enqueue(MockResponse().setBody("{\"workflows\":[]}"))
+            s.enqueue(MockResponse().setResponseCode(403).setBody("{}"))
             s.enqueue(MockResponse().setBody("[{\"path\":\".github/workflows/build.yml\",\"name\":\"build.yml\"}]"))
             s.enqueue(MockResponse().setBody(file(workflow,"workflow-sha")))
             s.enqueue(MockResponse().setBody(file("{\"mode\":\"github\"}","config-sha")))
             s.enqueue(MockResponse().setResponseCode(403).setBody("{}"))
-            s.enqueue(MockResponse().setBody("{\"workflow_runs\":[]}"))
+            s.enqueue(MockResponse().setResponseCode(403).setBody("{}"))
             s.enqueue(MockResponse().setBody("[]"))
             val snapshot=GitHub("contents-token",s.url("/").toString()).snapshot(Project("owner/repo","main"))
             assertEquals("github",snapshot.mode)
             assertNotNull(snapshot.runnerError)
+            assertTrue(snapshot.notes.any{it.contains("Workflow-Übersicht")})
+            assertTrue(snapshot.notes.any{it.contains("Build-Übersicht")})
             val message=RunnerStatus.message(snapshot.runners,snapshot.runnerError)
             assertFalse(message.contains("offline"));assertFalse(message.contains("nicht erreichbar"))
             assertTrue(message.contains("trotzdem speichern"))
