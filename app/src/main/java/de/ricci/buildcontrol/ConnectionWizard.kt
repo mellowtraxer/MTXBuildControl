@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -21,8 +22,8 @@ fun ConnectionWizard(project: Project, projects: List<Project>, busy: Boolean, m
     var manual by remember { mutableStateOf(false) }
     var token by remember { mutableStateOf("") }
     var pasteError by remember { mutableStateOf<String?>(null) }
-    var opened by remember { mutableStateOf(false) }
-    var help by remember { mutableStateOf(false) }
+    var opened by rememberSaveable { mutableStateOf(false) }
+    var help by rememberSaveable { mutableStateOf(false) }
     val repositories=GitHubSetup.repositories(project,projects)
     Card(Modifier.fillMaxWidth(),shape=RoundedCornerShape(24.dp),colors=CardDefaults.cardColors(containerColor=Color(0xFF141218)),border=BorderStroke(1.dp,Color.White.copy(alpha=.08f))) {
         Column(Modifier.padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
@@ -30,7 +31,7 @@ fun ConnectionWizard(project: Project, projects: List<Project>, busy: Boolean, m
             Text("${project.name} ist vorbereitet",fontSize=24.sp,fontWeight=FontWeight.Bold)
             Text("Einmal GitHub freigeben. Danach kannst du deine Projekte direkt hier auswählen und den Runner wechseln.")
             Text("1 · Freigabe auf GitHub öffnen",fontWeight=FontWeight.Bold)
-            Text("Name, Konto, Gültigkeit und benötigte Rechte sind bereits eingetragen. Die Freigabe gilt 90 Tage.",fontSize=13.sp)
+            Text("Name, Konto, Gültigkeit und benötigte Rechte sind bereits eingetragen. Voreingestellt sind 90 Tage.",fontSize=13.sp)
             Button(onClick={pasteError=null;opened=true;open(GitHubSetup.authorizationUrl(project))},enabled=!busy,modifier=Modifier.fillMaxWidth()) {
                 Text(if(opened)"GitHub-Freigabe erneut öffnen" else "GitHub-Freigabe öffnen")
             }

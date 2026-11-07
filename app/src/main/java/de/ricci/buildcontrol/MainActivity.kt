@@ -93,7 +93,7 @@ private val Purple=Color(0xFFB998FF)
                     Text("${model.selected.name} ist bereits eingerichtet. Wähle das Projekt und verbinde unten einmal GitHub.",fontSize=13.sp)
                 }
             }
-            if(!model.connected){
+            if(!model.connected||model.needsProjectAccess){
                 ConnectionWizard(model.selected,model.projects,model.busy,model.message,::open){model.connect(it)}
             }else{
                 PrimaryTabRow(selectedTabIndex=tab){listOf("Runner","Builds","APKs").forEachIndexed{i,t->Tab(selected=tab==i,onClick={tab=i},text={Text(t)})}}
@@ -142,9 +142,9 @@ private val Purple=Color(0xFFB998FF)
                 }
                 pendingInstall?.let{f->OutlinedButton(onClick={pendingInstall=null;install(f)}){Text("Berechtigung erteilt – Installation fortsetzen")}}
                 if(model.updateAssets.isNotEmpty())Glass("BUILD CONTROL UPDATE"){model.updateAssets.forEach{a->Text(a.version);Button(onClick={model.download(a)},enabled=!model.busy){Text("Update herunterladen")}}}
-                TextButton(onClick={pending="logout"},enabled=!model.busy){Text("GitHub abmelden")}
             }
-            if(model.connected&&model.message.isNotBlank())Glass("STATUS"){Text(model.message)}
+            if(model.connected)TextButton(onClick={pending="logout"},enabled=!model.busy){Text("GitHub abmelden")}
+            if(model.connected&&!model.needsProjectAccess&&model.message.isNotBlank())Glass("STATUS"){Text(model.message)}
             Spacer(Modifier.height(16.dp))
         }
     }
