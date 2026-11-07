@@ -10,6 +10,9 @@ android {
         versionName = "1.0.${System.getenv("BUILD_NUMBER") ?: "1"}"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    signingConfigs.getByName("debug") {
+        System.getenv("MTX_SIGNING_FILE")?.takeIf { it.isNotBlank() }?.let { storeFile = file(it) }
+    }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
