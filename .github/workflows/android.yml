@@ -12,6 +12,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      BUILD_NUMBER: ${{ github.run_number }}
     permissions:
       contents: write
       actions: read
@@ -41,6 +43,8 @@ jobs:
           MTX_LIVE_READ: 'true'
           GH_READ_TOKEN: ${{ github.token }}
         run: gradle --no-daemon --max-workers=2 :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Verify built APK identity and signature
+        run: bash scripts/verify-apk.sh
       - uses: actions/upload-artifact@v4
         with:
           name: MTXBuildControl-${{ github.run_number }}
@@ -60,6 +64,8 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: gradle --no-daemon --max-workers=2 :app:connectedDebugAndroidTest
+      - name: Verify tested APK identity and signature
+        run: bash scripts/verify-apk.sh
       - name: Publish installable debug APK
         env:
           GH_TOKEN: ${{ github.token }}
