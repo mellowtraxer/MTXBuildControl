@@ -18,6 +18,12 @@ class ControlModel(app: Application): AndroidViewModel(app) {
     var needsProjectAccess by mutableStateOf(false); private set
     var projects by mutableStateOf(store.projects()); private set
     var selected by mutableStateOf(projects.firstOrNull{it.repo == store.selected} ?: projects.first()); private set
+    var savedModes by mutableStateOf(projects.associateWith{store.runnerMode(it)}); private set
+    private fun rememberMode(project: Project, mode: String?) {
+        if(mode==null)return
+        store.saveRunnerMode(project,mode)
+        savedModes=savedModes+(project to mode)
+    }
     var snapshot by mutableStateOf<Snapshot?>(null); private set
     var busy by mutableStateOf(false); private set
     var message by mutableStateOf(""); private set
@@ -49,6 +55,7 @@ class ControlModel(app: Application): AndroidViewModel(app) {
             throw e
         }
         store.saveToken(value);api=client;connected=true;needsProjectAccess=false;snapshot=result;dispatchable=client.dispatchable
+        rememberMode(p,result.mode)
         message="Verbunden als $user · ${p.name} ist bereit."
     }
     fun logout(){if(busy)return;store.logout();api=null;connected=false;needsProjectAccess=false;snapshot=null;downloads=emptyList();updateAssets=emptyList();message="Abgemeldet. Token auf diesem Gerät entfernt."}
@@ -63,6 +70,7 @@ class ControlModel(app: Application): AndroidViewModel(app) {
             throw e
         }
         snapshot=result;dispatchable=client.dispatchable;needsProjectAccess=false
+        rememberMode(p,result.mode)
     }
     fun refresh()=work{load()}
     fun select(p:Project){if(busy)return;selected=p;store.selected=p.repo;snapshot=null;downloads=emptyList();needsProjectAccess=false;message="";if(connected)refresh()}
@@ -78,9 +86,15 @@ class ControlModel(app: Application): AndroidViewModel(app) {
     fun branches()=work{detail=withContext(Dispatchers.IO){api!!.branches(selected.repo).joinToString("\n")}}
     fun switch(target:String)=work{
         val client=api ?: error("Nicht verbunden.")
-        // If a response is lost, leave the result uncertain and require refresh before retry.
-        message=withContext(Dispatchers.IO){client.switch(selected,target)}
-        load()
+        val project=selected
+        // Clear stale live state before writing. Only a verified response is saved.
+        snapshot=null
+        withContext(Dispatchers.IO){client.switch(project,target)}
+        rememberMode(project,target)
+        message="Für ${project.name} gespeichert: ${if(target=="pc")"PC" else "GitHub"}."
+        try { load() } catch(e:Exception) {
+            message+=" Auswahl bestätigt. Weitere Angaben konnten gerade nicht geladen werden."
+        }
     }
     fun dispatch(workflow:Workflow,inputs:Map<String,String>)=work{withContext(Dispatchers.IO){api!!.dispatch(selected,workflow,inputs)};message="Workflow-Start angefordert. GitHub legt den Lauf an; bitte aktualisieren.";load()}
     fun failure(build:Build)=work{detail=withContext(Dispatchers.IO){api!!.failure(selected,build)}}

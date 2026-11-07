@@ -37,6 +37,13 @@ class Store(context: Context) {
         return if(a.length()==0) listOf(Project("mellowtraxer/RiccisTidalPlaylistCreator","feature/mtx-studio-core","MTX Studio"),Project("mellowtraxer/GarminSleepTasker","sleepsync-compose-v2","SleepSync")) else (0 until a.length()).map { a.getJSONObject(it).let{Project(it.getString("repo"),it.getString("branch"),it.getString("name"))} }
     }
     fun saveProjects(projects: List<Project>) { val a=JSONArray(); projects.forEach{a.put(JSONObject().put("repo",it.repo).put("branch",it.branch).put("name",it.name))};prefs.edit().putString("projects",a.toString()).apply() }
+    // The repository and branch form one independent runner setting.
+    fun runnerMode(project: Project): String? = prefs.getString(runnerKey(project),null)?.takeIf{it=="pc"||it=="github"}
+    fun saveRunnerMode(project: Project, mode: String) {
+        require(mode=="pc"||mode=="github")
+        check(prefs.edit().putString(runnerKey(project),mode).commit()) { "Auswahl konnte auf diesem Gerät nicht gespeichert werden." }
+    }
+    private fun runnerKey(project: Project) = "runner:"+JSONArray(listOf(project.repo.lowercase(),project.branch)).toString()
     var selected: String
         get()=prefs.getString("selected","").orEmpty()
         set(value){prefs.edit().putString("selected",value).apply()}

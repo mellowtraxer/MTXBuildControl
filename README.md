@@ -65,3 +65,9 @@ CI läuft ausschließlich auf `ubuntu-latest` und einem GitHub-gehosteten Androi
 Die älteren CI-Builds 2–4 verwendeten noch wechselnde Debug-Signaturen; deren APKs bleiben erhalten, sind aber keine geeignete Grundlage für dauerhafte OTA-Updates.
 
 Tests umfassen Runner-Validierung, YAML-Dispatch-Erkennung, SHA-gesichertes Schreiben, Konfliktabbruch ohne Retry, Idempotenz und Pagination mit MockWebServer. Der Android-Instrumentierungstest startet die echte Activity und prüft den Verbindungsbildschirm. Ein zusätzlicher CI-Integrationstest liest Workflows und den aktuellen Build über die echte GitHub-API mit dem auf dieses Repository begrenzten CI-Token. Lokal wird dieser Test ausdrücklich übersprungen. Authentifiziertes Umschalten auf einem echten Pixel ist damit nicht nachgewiesen und wird gesondert ausgewiesen.
+
+### Einfache Projektauswahl
+
+Projekt auswählen, **PC** oder **GitHub** antippen – diese bewusste Auswahl speichert direkt, ohne zweiten Bestätigungsdialog. Die bestätigten Einstellungen werden je Repository und Branch getrennt gespeichert und bleiben beim Neustart oder Abmelden erhalten. Ein Projektwechsel verändert keine anderen Projekte. Technische Angaben liegen unter „Einstellungen“.
+
+Beim Öffnen liest die App die tatsächliche GitHub-Einstellung, ohne selbst umzuschalten. Ohne aktuelle Prüfung steht ausdrücklich „Zuletzt gespeichert … noch nicht geprüft“. Fehlgeschlagene Schreibvorgänge werden nicht als gespeichert bestätigt. Die einmalige GitHub-Freigabe bleibt erforderlich; MTX Studio und SleepSync sind bereits mit ihren passenden Branches eingerichtet.

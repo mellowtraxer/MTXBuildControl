@@ -51,6 +51,7 @@ private val Purple=Color(0xFFB998FF)
 @Composable fun ControlApp(model:ControlModel=viewModel()){
     val context=LocalContext.current;val haptics=LocalHapticFeedback.current
     var tab by rememberSaveable {mutableIntStateOf(0)}
+    var settings by rememberSaveable {mutableStateOf(false)}
     var edit by remember {mutableStateOf(false)}
     var repo by remember {mutableStateOf("")};var branch by remember {mutableStateOf("")};var name by remember {mutableStateOf("")}
     var pending by remember {mutableStateOf<String?>(null)}
@@ -84,11 +85,14 @@ private val Purple=Color(0xFFB998FF)
         if(model.busy)LinearProgressIndicator(Modifier.fillMaxWidth())
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(14.dp)){
             Glass(if(model.connected)"PROJEKT" else "DEIN PROJEKT"){
-                model.projects.forEach{p->FilterChip(selected=model.selected==p,onClick={model.select(p)},enabled=!model.busy,label={Text(p.name)})}
+                model.projects.forEach{p->FilterChip(selected=model.selected==p,onClick={tab=0;model.select(p)},enabled=!model.busy,label={Text(p.name)})}
                 if(model.connected){
+                    TextButton(onClick={settings=!settings}){Text(if(settings)"Einstellungen schließen" else "Einstellungen")}
+                    if(settings){
                     Text(model.selected.repo,fontSize=12.sp)
                     Text(model.selected.branch,fontFamily=FontFamily.Monospace,color=Purple)
-                    Row{TextButton(onClick={repo="";branch="";name="";edit=true},enabled=!model.busy){Text("+ Projekt")};TextButton(onClick={repo=model.selected.repo;branch=model.selected.branch;name=model.selected.name;edit=true},enabled=!model.busy){Text("Bearbeiten")};TextButton(onClick={model.refresh()},enabled=!model.busy){Text("Laden")}}
+                    Row{TextButton(onClick={repo="";branch="";name="";edit=true},enabled=!model.busy){Text("+ Projekt")};TextButton(onClick={repo=model.selected.repo;branch=model.selected.branch;name=model.selected.name;edit=true},enabled=!model.busy){Text("Bearbeiten")};TextButton(onClick={model.refresh()},enabled=!model.busy){Text("Aktualisieren")}}
+                    }
                 }else{
                     Text("${model.selected.name} ist bereits eingerichtet. Wähle das Projekt und verbinde unten einmal GitHub.",fontSize=13.sp)
                 }
@@ -96,25 +100,26 @@ private val Purple=Color(0xFFB998FF)
             if(!model.connected||model.needsProjectAccess){
                 ConnectionWizard(model.selected,model.projects,model.busy,model.message,::open){model.connect(it)}
             }else{
-                PrimaryTabRow(selectedTabIndex=tab){listOf("Runner","Builds","APKs").forEachIndexed{i,t->Tab(selected=tab==i,onClick={tab=i},text={Text(t)})}}
+                PrimaryTabRow(selectedTabIndex=tab){listOf("Auswahl","Builds","APKs").forEachIndexed{i,t->Tab(selected=tab==i,onClick={tab=i},text={Text(t)})}}
+                if(tab==0){
+                    val live=model.snapshot
+                    Glass("WO SOLL ${model.selected.name.uppercase()} BAUEN?"){
+                        RunnerChoice(mode=live?.mode ?: model.savedModes[model.selected],verified=live?.mode!=null,
+                            enabled=!model.busy&&live?.mode!=null,onChoose={target->
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress);model.switch(target)
+                            })
+                        Text("Antippen speichert die Auswahl für dieses Projekt. Laufende Builds bleiben erhalten.",fontSize=12.sp)
+                        if(live!=null&&live.mode==null)Text("Die Umschaltung ist für dieses Projekt noch nicht eingerichtet.")
+                        if(live?.mode==null)TextButton(onClick={model.refresh()},enabled=!model.busy){Text("Erneut prüfen")}
+                        if(live!=null&&live.runners.none{it.name=="RICCI"&&it.status=="online"})Text("PC gerade nicht erreichbar. Du kannst GitHub wählen.",fontSize=12.sp)
+                    }
+                    Glass("DEINE PROJEKTE"){
+                        model.projects.forEach{p->Text("${p.name}: ${when(model.savedModes[p]){"pc"->"PC";"github"->"GitHub";else->"noch nicht geprüft"}}",fontSize=14.sp)}
+                        Text("Zuletzt bestätigte Auswahl. Jedes Projekt hat seine eigene Einstellung.",fontSize=12.sp)
+                    }
+                }
                 model.snapshot?.let{s->when(tab){
                     0->{
-                        Glass("RUNNER CONTROL"){
-                            val mode=s.mode
-                            Text(when(mode){"pc"->"PC / RICCI aktiv";"github"->"GitHub Cloud aktiv";else->"Runner-Steuerung nicht eingerichtet"},fontSize=22.sp,fontWeight=FontWeight.Bold)
-                            if(mode==null)Text("Dieser Branch besitzt noch keinen kompatiblen MTX-Runner-Vertrag. Builds und APKs sind trotzdem verfügbar. Die App überschreibt keine unbekannten Workflows.")
-                            listOf("pc" to "PC RUNNER – RICCI","github" to "GITHUB RUNNER – CLOUD").forEach{(target,label)->
-                                val color by animateColorAsState(if(mode==target)Purple else Color(0xFF29232F),label="runner")
-                                Button(onClick={haptics.performHapticFeedback(HapticFeedbackType.LongPress);pending=target},enabled=!model.busy&&mode!=null&&mode!=target,colors=ButtonDefaults.buttonColors(containerColor=color),modifier=Modifier.fillMaxWidth().height(66.dp),shape=RoundedCornerShape(16.dp)){Text(label,fontWeight=FontWeight.Bold)}
-                            }
-                            Text("Nur künftige Builds wechseln. Laufende und wartende Builds bleiben erhalten. RICCI erst ausschalten, wenn alle PC-Jobs fertig sind.",fontSize=12.sp)
-                        }
-                        Glass("RUNNER-STATUS"){
-                            s.runnerError?.let{Text("Status unbekannt: $it")}
-                            if(s.runners.isEmpty()&&s.runnerError==null)Text("Keine Self-hosted Runner für dieses Repository registriert.")
-                            s.runners.forEach{r->Text("${r.name} · ${r.status.uppercase()}${if(r.busy)" · beschäftigt" else ""}",color=if(r.status=="online")Color(0xFF86D6AA) else Color(0xFFFFBE85));Text(r.labels.joinToString(" · "),fontSize=11.sp)}
-                            if(s.runners.none{it.name=="RICCI"&&it.status=="online"})Text("RICCI nicht als online bestätigt. Cloud ist die Ausweichlösung.",fontSize=12.sp)
-                        }
                         s.builds.firstOrNull()?.let{BuildCard(it,{model.failure(it)},{open(it.url)})}
                     }
                     1->{
@@ -132,7 +137,7 @@ private val Purple=Color(0xFFB998FF)
                         }
                     }
                 }
-                if(s.notes.isNotEmpty())Glass("HINWEISE"){s.notes.distinct().forEach{Text(it,fontSize=12.sp)}}}
+                if(settings&&s.notes.isNotEmpty())Glass("HINWEISE"){s.notes.distinct().forEach{Text(it,fontSize=12.sp)}}}
                 if(model.downloads.isNotEmpty())Glass("HERUNTERGELADEN"){
                     model.downloads.forEach{f->
                         val info=remember(f){context.packageManager.getPackageArchiveInfo(f.path,0)}
@@ -143,13 +148,13 @@ private val Purple=Color(0xFFB998FF)
                 pendingInstall?.let{f->OutlinedButton(onClick={pendingInstall=null;install(f)}){Text("Berechtigung erteilt – Installation fortsetzen")}}
                 if(model.updateAssets.isNotEmpty())Glass("BUILD CONTROL UPDATE"){model.updateAssets.forEach{a->Text(a.version);Button(onClick={model.download(a)},enabled=!model.busy){Text("Update herunterladen")}}}
             }
-            if(model.connected)TextButton(onClick={pending="logout"},enabled=!model.busy){Text("GitHub abmelden")}
+            if(model.connected&&settings)TextButton(onClick={pending="logout"},enabled=!model.busy){Text("GitHub abmelden")}
             if(model.connected&&!model.needsProjectAccess&&model.message.isNotBlank())Glass("STATUS"){Text(model.message)}
             Spacer(Modifier.height(16.dp))
         }
     }
     if(edit)AlertDialog(onDismissRequest={edit=false},title={Text("Projekt & Branch")},text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){OutlinedTextField(repo,{repo=it},label={Text("Besitzer/Repository")});OutlinedTextField(branch,{branch=it},label={Text("Branch (leer = Standard)")});OutlinedTextField(name,{name=it},label={Text("Anzeigename")});TextButton(onClick={model.branches()}){Text("Branches des gewählten Projekts anzeigen")}}},confirmButton={TextButton(onClick={edit=false;model.saveProject(repo,branch,name)}){Text("Speichern")}},dismissButton={TextButton(onClick={edit=false}){Text("Abbrechen")}})
-    pending?.let{target->AlertDialog(onDismissRequest={pending=null},title={Text(if(target=="logout")"Abmelden?" else "Runner wirklich umschalten?")},text={Text(if(target=="logout")"Der gespeicherte Token wird auf diesem Gerät entfernt." else "${model.selected.repo}\n${model.selected.branch}\n\nZiel: ${if(target=="pc")"PC / RICCI" else "GitHub Cloud"}\n\nDie Runner-Datei wird als Commit geändert. Das kann einen neuen Build auslösen. Bestehende Läufe werden nicht abgebrochen.")},confirmButton={TextButton(onClick={pending=null;if(target=="logout")model.logout() else model.switch(target)}){Text("Bestätigen")}},dismissButton={TextButton(onClick={pending=null}){Text("Abbrechen")}})}
+    if(pending=="logout")AlertDialog(onDismissRequest={pending=null},title={Text("Abmelden?")},text={Text("Die GitHub-Verbindung wird auf diesem Gerät entfernt. Deine Projekte und ihre Auswahl bleiben gespeichert.")},confirmButton={TextButton(onClick={pending=null;model.logout()}){Text("Abmelden")}},dismissButton={TextButton(onClick={pending=null}){Text("Abbrechen")}})
     workflow?.let{w->AlertDialog(onDismissRequest={workflow=null},title={Text("Workflow starten?")},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){Text("${w.name}\n${model.selected.repo}\n${model.selected.branch}");w.dispatch.forEach{(k,v)->OutlinedTextField(inputs[k].orEmpty(),{inputs=inputs+(k to it)},label={Text(k+if(v.required)" *" else "")},supportingText={Text(if(v.options.isEmpty())v.type else v.options.joinToString(" | "))})}}},confirmButton={TextButton(onClick={workflow=null;model.dispatch(w,inputs)}){Text("Start bestätigen")}},dismissButton={TextButton(onClick={workflow=null}){Text("Abbrechen")}})}
     apk?.let{f->AlertDialog(onDismissRequest={apk=null},title={Text("APK installieren?")},text={Text("Android prüft die APK und verlangt die Installationsbestätigung. Bei Build Control werden zusätzlich Version und Signatur geprüft.")},confirmButton={TextButton(onClick={apk=null;install(f)}){Text("Systeminstaller öffnen")}},dismissButton={TextButton(onClick={apk=null}){Text("Abbrechen")}})}
     model.detail?.let{d->AlertDialog(onDismissRequest={model.detail=null},title={Text("GitHub-Details")},text={Text(d,Modifier.verticalScroll(rememberScrollState()))},confirmButton={TextButton(onClick={model.detail=null}){Text("Schließen")}})}
