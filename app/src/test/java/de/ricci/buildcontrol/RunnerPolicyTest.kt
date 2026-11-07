@@ -82,6 +82,16 @@ class RunnerPolicyTest {
         assertTrue(RunnerStatus.message(emptyList(),null).contains("Für dieses Projekt"))
         assertTrue(RunnerStatus.message(emptyList(),"HTTP 403").contains("nicht abrufbar"))
     }
+    @Test fun privateProjectWithoutAccessCannotWriteOrBeMisreportedAsOffline(){
+        listOf(403,404).forEach{status->MockWebServer().use{s->
+            s.enqueue(MockResponse().setResponseCode(status).setBody("{}"))
+            val error=assertThrows(ApiException::class.java){GitHub("restricted-token",s.url("/").toString()).snapshot(Project("private/project","main"))}
+            assertEquals(status,error.status)
+            assertFalse(error.message.orEmpty().contains("offline"))
+            assertEquals(1,s.requestCount)
+            assertEquals("GET",s.takeRequest().method)
+        }}
+    }
     @Test fun concurrentUpdateFailsWithoutRetryOrOverwrite(){MockWebServer().use{s->setup(s);s.enqueue(MockResponse().setResponseCode(409).setBody("{}"));assertThrows(ApiException::class.java){GitHub("test",s.url("/").toString()).switch(Project("owner/repo","main"),"github")};assertEquals(4,s.requestCount)}}
     @Test fun sameModeDoesNotCommit(){MockWebServer().use{s->setup(s,"github");GitHub("test",s.url("/").toString()).switch(Project("owner/repo","main"),"github");assertEquals(3,s.requestCount)}}
     @Test fun allRunnerPagesAreLoaded(){MockWebServer().use{s->val hundred=(1..100).joinToString(","){"{\"name\":\"R$it\",\"os\":\"linux\",\"status\":\"offline\",\"busy\":false,\"labels\":[]}"};s.enqueue(MockResponse().setBody("{\"runners\":[$hundred]}"));s.enqueue(MockResponse().setBody("{\"runners\":[]}"));assertEquals(100,GitHub("test",s.url("/").toString()).runners(Project("o/r","main")).size);s.takeRequest();assertTrue(s.takeRequest().path!!.contains("page=2"))}}

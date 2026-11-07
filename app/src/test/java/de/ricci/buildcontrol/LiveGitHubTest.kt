@@ -18,16 +18,4 @@ class LiveGitHubTest {
         assertTrue(snapshot.builds.any { it.id == current })
         assertNull("Build Control's own CI is always hosted", snapshot.mode)
     }
-    @Test fun bothRealProjectsExposeRunnerConfigurationWithoutAdministrationAccess(){
-        assumeTrue("Live read runs only in GitHub Actions", System.getenv("MTX_LIVE_READ") == "true")
-        // The CI token belongs to MTXBuildControl only. These two repositories
-        // are public; read their real configuration without that unrelated token.
-        val api=GitHub("")
-        listOf(Project("mellowtraxer/RiccisTidalPlaylistCreator","feature/mtx-studio-core"),
-            Project("mellowtraxer/GarminSleepTasker","sleepsync-compose-v2")).forEach{project->
-            val snapshot=api.snapshot(project)
-            assertTrue("Runner configuration not recognized for ${project.repo}",snapshot.mode in setOf("pc","github"))
-            if(snapshot.runnerError!=null)assertFalse(RunnerStatus.message(snapshot.runners,snapshot.runnerError).contains("offline"))
-        }
-    }
 }
