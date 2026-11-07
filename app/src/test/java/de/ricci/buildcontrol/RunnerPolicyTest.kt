@@ -62,4 +62,17 @@ class RunnerPolicyTest {
         val folder=java.nio.file.Files.createTempDirectory("mtx-no-apks").toFile()
         try { MockWebServer().use { server -> server.enqueue(MockResponse().setBody(okio.Buffer().write(bytes.toByteArray())));assertThrows(IllegalArgumentException::class.java){GitHub("test",server.url("/").toString()).download(PackageAsset("test","repos/o/r/actions/artifacts/1/zip",true,"1"),folder)};assertEquals(0,folder.listFiles()!!.size) } } finally { folder.deleteRecursively() }
     }
+
+    @Test fun downloadRedirectDoesNotForwardTokenToAnotherOrigin() {
+        MockWebServer().use { api -> MockWebServer().use { storage ->
+            storage.enqueue(MockResponse().setBody("apk-bytes"))
+            api.enqueue(MockResponse().setResponseCode(302).setHeader("Location", storage.url("/package.apk")))
+            val folder=java.nio.file.Files.createTempDirectory("mtx-redirect").toFile()
+            try {
+                GitHub("private-test-token",api.url("/").toString()).download(PackageAsset("test","repos/o/r/releases/assets/1",false,"1"),folder)
+                assertEquals("Bearer private-test-token",api.takeRequest().getHeader("Authorization"))
+                assertNull(storage.takeRequest().getHeader("Authorization"))
+            } finally { folder.deleteRecursively() }
+        } }
+    }
 }

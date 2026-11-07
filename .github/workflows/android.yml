@@ -14,6 +14,7 @@ jobs:
     timeout-minutes: 25
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,6 +38,8 @@ jobs:
       - name: Unit tests, lint and APK
         env:
           BUILD_NUMBER: ${{ github.run_number }}
+          MTX_LIVE_READ: 'true'
+          GH_READ_TOKEN: ${{ github.token }}
         run: gradle --no-daemon --max-workers=2 :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
       - uses: actions/upload-artifact@v4
         with:

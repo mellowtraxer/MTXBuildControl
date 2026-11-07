@@ -59,7 +59,9 @@ class GitHub(private val token: String, private val base: String = "https://api.
         json("repos/${p.repo}/branches/${enc(p.branch)}")
         val notes = mutableListOf<String>()
         val registered = list("repos/${p.repo}/actions/workflows", "workflows")
-        val files = list("repos/${p.repo}/contents/.github/workflows?ref=${enc(p.branch)}", "items").filter { it.optString("name").endsWith(".yml") || it.optString("name").endsWith(".yaml") }
+        val directory = try { list("repos/${p.repo}/contents/.github/workflows?ref=${enc(p.branch)}", "items") }
+            catch(e: ApiException) { if(e.status == 404) { notes += "Keine Workflow-Dateien auf diesem Branch."; emptyList() } else throw e }
+        val files = directory.filter { it.optString("name").endsWith(".yml") || it.optString("name").endsWith(".yaml") }
         val texts = mutableListOf<String>()
         val workflows = files.mapNotNull { o ->
             try {
