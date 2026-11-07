@@ -50,7 +50,6 @@ private val Purple=Color(0xFFB998FF)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun ControlApp(model:ControlModel=viewModel()){
     val context=LocalContext.current;val haptics=LocalHapticFeedback.current
-    var token by remember {mutableStateOf("")}
     var tab by rememberSaveable {mutableIntStateOf(0)}
     var edit by remember {mutableStateOf(false)}
     var repo by remember {mutableStateOf("")};var branch by remember {mutableStateOf("")};var name by remember {mutableStateOf("")}
@@ -84,23 +83,19 @@ private val Purple=Color(0xFFB998FF)
         Row(Modifier.fillMaxWidth().padding(vertical=18.dp),horizontalArrangement=Arrangement.SpaceBetween){Column{Text("MTX",color=Purple,fontSize=28.sp,fontWeight=FontWeight.Black,fontFamily=FontFamily.Monospace);Text("BUILD CONTROL",fontSize=13.sp,letterSpacing=3.sp)};TextButton(onClick={model.updates()},enabled=model.connected&&!model.busy){Text("v${BuildConfig.VERSION_NAME}")}}
         if(model.busy)LinearProgressIndicator(Modifier.fillMaxWidth())
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(14.dp)){
-            if(!model.connected){
-                Glass("GITHUB VERBINDEN"){
-                    Text("Deine Projekte. Deine Runner.",fontSize=24.sp,fontWeight=FontWeight.Bold)
-                    Text("Verbinde GitHub mit einem Fine-grained Personal Access Token. Der Token bleibt verschlüsselt auf diesem Gerät.")
-                    Text("Nur gewünschte Repositories auswählen: Contents lesen/schreiben, Actions lesen/schreiben, Administration nur lesen (RICCI-Status). Metadata lesen ist automatisch enthalten.",fontSize=13.sp)
-                    OutlinedTextField(token,{token=it},Modifier.fillMaxWidth(),label={Text("GitHub-Token")},visualTransformation=PasswordVisualTransformation(),singleLine=true)
-                    Button(onClick={model.connect(token);token=""},enabled=!model.busy&&token.isNotBlank(),modifier=Modifier.fillMaxWidth()){Text("Sicher verbinden")}
-                    TextButton(onClick={open("https://github.com/settings/personal-access-tokens/new")}){Text("Token bei GitHub erstellen")}
-                    Text("Befristung wählen. Kein Token im Quellcode. Abmelden entfernt ihn lokal. Details zur Einrichtung stehen im Repository.",fontSize=12.sp)
-                }
-            }else{
-                Glass("PROJEKT"){
-                    model.projects.forEach{p->FilterChip(selected=model.selected==p,onClick={model.select(p)},enabled=!model.busy,label={Text(p.name)})}
+            Glass(if(model.connected)"PROJEKT" else "DEIN PROJEKT"){
+                model.projects.forEach{p->FilterChip(selected=model.selected==p,onClick={model.select(p)},enabled=!model.busy,label={Text(p.name)})}
+                if(model.connected){
                     Text(model.selected.repo,fontSize=12.sp)
                     Text(model.selected.branch,fontFamily=FontFamily.Monospace,color=Purple)
                     Row{TextButton(onClick={repo="";branch="";name="";edit=true},enabled=!model.busy){Text("+ Projekt")};TextButton(onClick={repo=model.selected.repo;branch=model.selected.branch;name=model.selected.name;edit=true},enabled=!model.busy){Text("Bearbeiten")};TextButton(onClick={model.refresh()},enabled=!model.busy){Text("Laden")}}
+                }else{
+                    Text("${model.selected.name} ist bereits eingerichtet. Wähle das Projekt und verbinde unten einmal GitHub.",fontSize=13.sp)
                 }
+            }
+            if(!model.connected){
+                ConnectionWizard(model.selected,model.projects,model.busy,model.message,::open){model.connect(it)}
+            }else{
                 PrimaryTabRow(selectedTabIndex=tab){listOf("Runner","Builds","APKs").forEachIndexed{i,t->Tab(selected=tab==i,onClick={tab=i},text={Text(t)})}}
                 model.snapshot?.let{s->when(tab){
                     0->{
@@ -149,7 +144,7 @@ private val Purple=Color(0xFFB998FF)
                 if(model.updateAssets.isNotEmpty())Glass("BUILD CONTROL UPDATE"){model.updateAssets.forEach{a->Text(a.version);Button(onClick={model.download(a)},enabled=!model.busy){Text("Update herunterladen")}}}
                 TextButton(onClick={pending="logout"},enabled=!model.busy){Text("GitHub abmelden")}
             }
-            if(model.message.isNotBlank())Glass("STATUS"){Text(model.message)}
+            if(model.connected&&model.message.isNotBlank())Glass("STATUS"){Text(model.message)}
             Spacer(Modifier.height(16.dp))
         }
     }

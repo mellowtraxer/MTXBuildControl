@@ -29,20 +29,31 @@ class ControlModel(app: Application): AndroidViewModel(app) {
         if(busy)return
         busy=true;message=""
         viewModelScope.launch {
-            try{action()}catch(e:Exception){message=e.message ?: "Aktion fehlgeschlagen."}finally{busy=false}
+            try{action()}catch(e:Exception){
+                if(e is ApiException && e.status==401){
+                    store.logout();api=null;connected=false;snapshot=null
+                    message="Deine GitHub-Freigabe ist ungültig oder abgelaufen. Bitte unten neu verbinden."
+                }else message=e.message ?: "Aktion fehlgeschlagen."
+            }finally{busy=false}
         }
     }
     fun connect(token: String) = work {
-        require(token.isNotBlank()){ "Bitte einen GitHub-Token eingeben." }
-        val client=GitHub(token.trim())
+        val value=GitHubSetup.token(token) ?: error("Bitte den von GitHub erzeugten Code kopieren und „Einfügen & verbinden“ antippen.")
+        val client=GitHub(value)
+        val p=selected
         val user=withContext(Dispatchers.IO){client.user()}
-        store.saveToken(token.trim());api=client;connected=true;message="Verbunden als $user"
-        load()
+        val result=try {withContext(Dispatchers.IO){client.snapshot(p)}} catch(e:ApiException){
+            if(e.status==404)error("GitHub ist erreichbar, aber ${p.name} ist nicht freigegeben. Auf GitHub unter „Only select repositories“ auch ${p.repo.substringAfter('/')} auswählen und einen neuen Code erzeugen.")
+            if(e.status==403)error("GitHub hat noch nicht alle benötigten Rechte freigegeben. Bitte über „GitHub-Freigabe öffnen“ einen Code mit den vorbereiteten Rechten erstellen.")
+            throw e
+        }
+        store.saveToken(value);api=client;connected=true;snapshot=result;dispatchable=client.dispatchable
+        message="Verbunden als $user · ${p.name} ist bereit."
     }
     fun logout(){if(busy)return;store.logout();api=null;connected=false;snapshot=null;downloads=emptyList();updateAssets=emptyList();message="Abgemeldet. Token auf diesem Gerät entfernt."}
     private suspend fun load(){val p=selected;val client=api ?: return;val result=withContext(Dispatchers.IO){client.snapshot(p)};snapshot=result;dispatchable=client.dispatchable}
     fun refresh()=work{load()}
-    fun select(p:Project){if(busy)return;selected=p;store.selected=p.repo;snapshot=null;downloads=emptyList();refresh()}
+    fun select(p:Project){if(busy)return;selected=p;store.selected=p.repo;snapshot=null;downloads=emptyList();message="";if(connected)refresh()}
     fun saveProject(repo:String,branch:String,name:String)=work{
         val clean=repo.trim().removePrefix("https://github.com/").removeSuffix("/").removeSuffix(".git")
         require(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+").matches(clean)) { "Repository als Besitzer/Name angeben." }

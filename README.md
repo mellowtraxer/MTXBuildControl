@@ -4,11 +4,14 @@ Eigenständige Android-App (Kotlin, Jetpack Compose, Material 3), Android 9 oder
 
 ## Einrichtung
 
-1. APK aus einem erfolgreichen **Android APK**-Lauf oder einem `build-N`-Release herunterladen. Bei einem ZIP die APK entpacken. Android-Systeminstallation bestätigen.
-2. In GitHub unter **Settings → Developer settings → Personal access tokens → Fine-grained tokens** einen befristeten Token erstellen. Resource owner: eigener GitHub-Account. Nur die gewünschten Repositories auswählen, einschließlich `MTXBuildControl` für private Updatezugriffe.
-3. Repository permissions: **Contents: Read and write**, **Actions: Read and write**, **Administration: Read-only**. Metadata: Read ist automatisch dabei. Keine Secrets-, Account- oder Administration-Schreibrechte vergeben. Workflows-Schreibrechte sind für die App nicht nötig, da sie nur die JSON-Konfiguration ändert.
-4. Token ausschließlich in der App eingeben. **Sicher verbinden** prüft den GitHub-Account. Token weder in Issues noch in Chats oder Quellcode eintragen.
-5. Projekt wählen, Branch prüfen. Ein Runner-Wechsel zeigt Repository, Branch und Ziel zur ausdrücklichen Bestätigung an. Für PC muss RICCI eindeutig online sein und die Labels `self-hosted`, `Windows`, `X64`, `RICCI` haben.
+1. APK aus einem erfolgreichen **Android APK**-Lauf oder einem `build-N`-Release herunterladen und installieren.
+2. Schon vor der Anmeldung **SleepSync** oder **MTX Studio** antippen. Die passenden Repository-Namen und Branches sind hinterlegt; es ist keine manuelle Projekteingabe erforderlich.
+3. **GitHub-Freigabe öffnen** antippen. GitHub bekommt einen dokumentierten Fine-grained-Token-Link mit vorbelegtem Namen, Resource owner, 90 Tagen Gültigkeit und den benötigten Rechten: Contents und Actions lesen/schreiben sowie Administration nur lesen.
+4. Auf GitHub unter **Repository access → Only select repositories** `GarminSleepTasker` (SleepSync), `RiccisTidalPlaylistCreator` (MTX Studio) und `MTXBuildControl` (eigene Updates) auswählen. Die App zeigt diese Namen passend zum gewählten Projekt an. GitHub unterstützt die Repository-Auswahl nicht als dokumentierten URL-Parameter; sie bleibt ausdrücklich beim Nutzer.
+5. **Generate token** antippen und den erzeugten Code über das Kopiersymbol kopieren. Zur App zurückkehren und **Einfügen & verbinden** antippen. In der App muss kein Code abgetippt werden. Die Zwischenablage wird ausschließlich bei diesem bewussten Tastendruck gelesen.
+6. Die App prüft GitHub und den Zugriff auf das gewählte Projekt, bevor sie die Verbindung speichert. Danach Runner wählen und die Änderung bestätigen. Für PC muss RICCI eindeutig online sein und die Labels `self-hosted`, `Windows`, `X64`, `RICCI` haben.
+
+Der bisherige manuelle Code-Eingabemodus bleibt als einklappbare Alternative erhalten. Bestehende verschlüsselte Anmeldungen und Projekteinstellungen werden beim Update übernommen. Eine abgelaufene oder ungültige Freigabe führt zur geführten Anmeldung zurück. Tokens weder in Chats noch in Issues eingeben.
 
 Die App verwendet bewusst einen Fine-grained Token: Es ist noch kein eigener GitHub-OAuth-Client registriert. Sie enthält keine OAuth-Secrets oder eingebauten Zugangsdaten. Ein späterer OAuth-Client kann die Authentifizierung ersetzen, ohne den Runner-Vertrag zu ändern.
 
