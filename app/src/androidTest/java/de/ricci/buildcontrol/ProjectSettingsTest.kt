@@ -45,6 +45,13 @@ class ProjectSettingsTest {
         compose.runOnIdle{assertEquals(listOf("github"),choices)}
         compose.onNodeWithText("Runner wirklich umschalten?").assertDoesNotExist()
     }
+    @Test fun afterUncertainWriteBothChoicesCanBeRetriedWithoutRestart(){
+        val choices=mutableListOf<String>()
+        compose.setContent{MaterialTheme{Column{RunnerChoice("pc",false,true){choices.add(it)}}}}
+        compose.onNodeWithText("GitHub").assertIsEnabled().performClick()
+        compose.onNodeWithText("PC").assertIsEnabled().performClick()
+        compose.runOnIdle{assertEquals(listOf("github","pc"),choices)}
+    }
     @Test fun cachedChoiceIsNotClaimedActiveBeforeVerification(){
         compose.setContent{MaterialTheme{Column{RunnerChoice("pc",false,false){error("Must not write before verification")}}}}
         compose.onNodeWithText("Zuletzt gespeichert: PC · noch nicht geprüft").assertExists()

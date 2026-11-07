@@ -101,12 +101,18 @@ class GitHub(private val token: String, private val base: String = "https://api.
         require(WorkflowReader.wired(paths.map { file(p, it).text })) { "Dieses Projekt unterstützt den MTX-Runner-Vertrag noch nicht." }
         val current = file(p,RunnerPolicy.PATH)
         val oldMode = RunnerPolicy.mode(current.text)
-        if (target == "pc") RunnerPolicy.validatePc(runners(p))
+        require(target in setOf("pc", "github"))
+        // Routing is a persistent preference, not a request to start/stop the PC.
+        // Runner-list access requires separate administration permission and must
+        // never prevent saving this preference. GitHub schedules the existing
+        // label selector; workflow identity checks still require Windows RICCI.
         if (oldMode == target) return "Bereits im Modus $target. Kein Commit erstellt."
         val result = json("repos/${p.repo}/contents/${RunnerPolicy.PATH}", "PUT",JSONObject().put("branch",p.branch).put("sha",current.sha).put("message","ci: route future MTX builds to $target runner").put("content",Base64.getEncoder().encodeToString(RunnerPolicy.updated(current.text,target).toByteArray())))
         val sha = result.getJSONObject("commit").getString("sha")
-        val verified = RunnerPolicy.mode(file(p,RunnerPolicy.PATH).text)
-        require(verified == target) { "Commit $sha erstellt, aber Modus inzwischen verändert. Bitte neu laden." }
+        // Verify the immutable commit we just created. A branch read immediately
+        // after PUT can still expose an older revision through GitHub caches.
+        val verified = RunnerPolicy.mode(file(p.copy(branch=sha),RunnerPolicy.PATH).text)
+        require(verified == target) { "Commit $sha erstellt, aber Inhalt konnte nicht bestätigt werden. Bitte neu laden." }
         return "Modus $target bestätigt · Commit ${sha.take(12)}. Bestehende Builds laufen weiter."
     }
     fun dispatch(p: Project, workflow: Workflow, inputs: Map<String,String>) {

@@ -92,7 +92,14 @@ class ControlModel(app: Application): AndroidViewModel(app) {
         withContext(Dispatchers.IO){client.switch(project,target)}
         rememberMode(project,target)
         message="Für ${project.name} gespeichert: ${if(target=="pc")"PC" else "GitHub"}."
-        try { load() } catch(e:Exception) {
+        // Keep the confirmed result usable even if optional monitor reads fail.
+        val confirmedMessage=message
+        try {
+            load()
+            if(snapshot?.mode!=null&&snapshot?.mode!=target){
+                message="$confirmedMessage GitHub zeigt inzwischen eine andere Auswahl. Bitte erneut prüfen."
+            }
+        } catch(e:Exception) {
             message+=" Auswahl bestätigt. Weitere Angaben konnten gerade nicht geladen werden."
         }
     }

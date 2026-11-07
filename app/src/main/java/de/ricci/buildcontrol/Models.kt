@@ -58,3 +58,15 @@ object WorkflowReader {
         }
     }
 }
+
+/** Failure to read the administration-only runner list is not an offline signal. */
+object RunnerStatus {
+    fun message(runners: List<Runner>, error: String?): String {
+        if(error!=null)return "PC-Status gerade nicht abrufbar. Du kannst die Auswahl trotzdem speichern."
+        val ricci=runners.filter{it.name=="RICCI"}
+        if(ricci.isEmpty())return "Für dieses Projekt ist kein PC bei GitHub gemeldet. PC-Builds warten, bis RICCI verbunden ist."
+        if(ricci.any{it.status.equals("online",true)})return if(ricci.any{it.busy})"PC ist online und arbeitet. Laufende Builds laufen weiter." else "PC ist online."
+        if(ricci.all{it.status.equals("offline",true)})return "PC ist bei GitHub offline gemeldet. Du kannst PC trotzdem speichern oder GitHub wählen."
+        return "PC-Status gerade unbekannt. Du kannst die Auswahl trotzdem speichern."
+    }
+}

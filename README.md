@@ -71,3 +71,9 @@ Tests umfassen Runner-Validierung, YAML-Dispatch-Erkennung, SHA-gesichertes Schr
 Projekt auswählen, **PC** oder **GitHub** antippen – diese bewusste Auswahl speichert direkt, ohne zweiten Bestätigungsdialog. Die bestätigten Einstellungen werden je Repository und Branch getrennt gespeichert und bleiben beim Neustart oder Abmelden erhalten. Ein Projektwechsel verändert keine anderen Projekte. Technische Angaben liegen unter „Einstellungen“.
 
 Beim Öffnen liest die App die tatsächliche GitHub-Einstellung, ohne selbst umzuschalten. Ohne aktuelle Prüfung steht ausdrücklich „Zuletzt gespeichert … noch nicht geprüft“. Fehlgeschlagene Schreibvorgänge werden nicht als gespeichert bestätigt. Die einmalige GitHub-Freigabe bleibt erforderlich; MTX Studio und SleepSync sind bereits mit ihren passenden Branches eingerichtet.
+
+### PC-Status und Umschaltung (Hotfix)
+
+Die Auswahl PC/GitHub ist unabhängig vom Zugriff auf die Runner-Verwaltung. Fehlende Rechte für die Statusabfrage werden als „Status nicht abrufbar“ angezeigt, niemals als „PC nicht erreichbar“. Auch bei ausgeschaltetem PC kann die zukünftige Auswahl gespeichert werden: GitHub wartet beim nächsten PC-Build auf den bestehenden passenden Runner. Ist RICCI für ein Projekt nicht registriert, sagt die App das ausdrücklich. Sie registriert keinen neuen Runner und verändert keine Labels.
+
+Die App prüft eine erfolgreiche Änderung anhand des neu erzeugten Commits statt einer möglicherweise noch veralteten Branch-Antwort. Nach einem unklaren Fehler bleiben beide Optionen erneut wählbar; jede Wiederholung liest die Konfiguration frisch und nutzt deren SHA. Schreibrechte und bestehende GitHub-Schutzregeln gelten unverändert.

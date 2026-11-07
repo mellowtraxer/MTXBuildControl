@@ -42,6 +42,44 @@ class RunnerPolicyTest {
             assertTrue(result.contains("new-commit"));repeat(3){s.takeRequest()};val put=s.takeRequest();assertEquals("PUT",put.method);val body=JSONObject(put.body.readUtf8());assertEquals("original-sha",body.getString("sha"));assertEquals("feature/core",body.getString("branch"));assertEquals("github",RunnerPolicy.mode(String(Base64.getDecoder().decode(body.getString("content")))));assertEquals("GET",s.takeRequest().method);assertEquals(5,s.requestCount)
         }
     }
+    @Test fun pcSelectionNeedsNoRunnerAdministrationPermissionAndVerifiesExactCommit(){
+        MockWebServer().use{s->
+            setup(s,"github")
+            s.enqueue(MockResponse().setBody("{\"commit\":{\"sha\":\"created-pc-commit\"}}"))
+            s.enqueue(MockResponse().setBody(file("{\"mode\":\"pc\"}","pc-file-sha")))
+            val result=GitHub("contents-only-token",s.url("/").toString()).switch(Project("owner/repo","feature/core"),"pc")
+            assertTrue(result.contains("bestätigt"))
+            val requests=(1..5).map{s.takeRequest()}
+            assertEquals("PUT",requests[3].method)
+            assertEquals("pc",RunnerPolicy.mode(String(Base64.getDecoder().decode(JSONObject(requests[3].body.readUtf8()).getString("content")))))
+            assertTrue(requests[4].path!!.endsWith("?ref=created-pc-commit"))
+            assertTrue(requests.none{it.path!!.contains("/actions/runners")})
+        }
+    }
+    @Test fun runnerReadDeniedDoesNotDisableConfiguredProject(){
+        MockWebServer().use{s->
+            s.enqueue(MockResponse().setBody("{}")) // branch
+            s.enqueue(MockResponse().setBody("{\"workflows\":[]}"))
+            s.enqueue(MockResponse().setBody("[{\"path\":\".github/workflows/build.yml\",\"name\":\"build.yml\"}]"))
+            s.enqueue(MockResponse().setBody(file(workflow,"workflow-sha")))
+            s.enqueue(MockResponse().setBody(file("{\"mode\":\"github\"}","config-sha")))
+            s.enqueue(MockResponse().setResponseCode(403).setBody("{}"))
+            s.enqueue(MockResponse().setBody("{\"workflow_runs\":[]}"))
+            s.enqueue(MockResponse().setBody("[]"))
+            val snapshot=GitHub("contents-token",s.url("/").toString()).snapshot(Project("owner/repo","main"))
+            assertEquals("github",snapshot.mode)
+            assertNotNull(snapshot.runnerError)
+            val message=RunnerStatus.message(snapshot.runners,snapshot.runnerError)
+            assertFalse(message.contains("offline"));assertFalse(message.contains("nicht erreichbar"))
+            assertTrue(message.contains("trotzdem speichern"))
+        }
+    }
+    @Test fun runnerStatusDistinguishesOfflineMissingUnknownAndBusy(){
+        assertTrue(RunnerStatus.message(listOf(runner()),null).contains("online und arbeitet"))
+        assertTrue(RunnerStatus.message(listOf(runner(status="offline")),null).contains("offline gemeldet"))
+        assertTrue(RunnerStatus.message(emptyList(),null).contains("Für dieses Projekt"))
+        assertTrue(RunnerStatus.message(emptyList(),"HTTP 403").contains("nicht abrufbar"))
+    }
     @Test fun concurrentUpdateFailsWithoutRetryOrOverwrite(){MockWebServer().use{s->setup(s);s.enqueue(MockResponse().setResponseCode(409).setBody("{}"));assertThrows(ApiException::class.java){GitHub("test",s.url("/").toString()).switch(Project("owner/repo","main"),"github")};assertEquals(4,s.requestCount)}}
     @Test fun sameModeDoesNotCommit(){MockWebServer().use{s->setup(s,"github");GitHub("test",s.url("/").toString()).switch(Project("owner/repo","main"),"github");assertEquals(3,s.requestCount)}}
     @Test fun allRunnerPagesAreLoaded(){MockWebServer().use{s->val hundred=(1..100).joinToString(","){"{\"name\":\"R$it\",\"os\":\"linux\",\"status\":\"offline\",\"busy\":false,\"labels\":[]}"};s.enqueue(MockResponse().setBody("{\"runners\":[$hundred]}"));s.enqueue(MockResponse().setBody("{\"runners\":[]}"));assertEquals(100,GitHub("test",s.url("/").toString()).runners(Project("o/r","main")).size);s.takeRequest();assertTrue(s.takeRequest().path!!.contains("page=2"))}}

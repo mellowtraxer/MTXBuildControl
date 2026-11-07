@@ -105,13 +105,14 @@ private val Purple=Color(0xFFB998FF)
                     val live=model.snapshot
                     Glass("WO SOLL ${model.selected.name.uppercase()} BAUEN?"){
                         RunnerChoice(mode=live?.mode ?: model.savedModes[model.selected],verified=live?.mode!=null,
-                            enabled=!model.busy&&live?.mode!=null,onChoose={target->
+                            enabled=!model.busy&&(live?.mode!=null||model.savedModes[model.selected]!=null),onChoose={target->
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress);model.switch(target)
                             })
                         Text("Antippen speichert die Auswahl für dieses Projekt. Laufende Builds bleiben erhalten.",fontSize=12.sp)
                         if(live!=null&&live.mode==null)Text("Die Umschaltung ist für dieses Projekt noch nicht eingerichtet.")
                         if(live?.mode==null)TextButton(onClick={model.refresh()},enabled=!model.busy){Text("Erneut prüfen")}
-                        if(live!=null&&live.runners.none{it.name=="RICCI"&&it.status=="online"})Text("PC gerade nicht erreichbar. Du kannst GitHub wählen.",fontSize=12.sp)
+                        if(live!=null)Text(RunnerStatus.message(live.runners,live.runnerError),fontSize=12.sp)
+                        if(model.message.isNotBlank())Text(model.message,fontWeight=FontWeight.Bold)
                     }
                     Glass("DEINE PROJEKTE"){
                         model.projects.forEach{p->Text("${p.name}: ${when(model.savedModes[p]){"pc"->"PC";"github"->"GitHub";else->"noch nicht geprüft"}}",fontSize=14.sp)}
@@ -149,7 +150,7 @@ private val Purple=Color(0xFFB998FF)
                 if(model.updateAssets.isNotEmpty())Glass("BUILD CONTROL UPDATE"){model.updateAssets.forEach{a->Text(a.version);Button(onClick={model.download(a)},enabled=!model.busy){Text("Update herunterladen")}}}
             }
             if(model.connected&&settings)TextButton(onClick={pending="logout"},enabled=!model.busy){Text("GitHub abmelden")}
-            if(model.connected&&!model.needsProjectAccess&&model.message.isNotBlank())Glass("STATUS"){Text(model.message)}
+            if(model.connected&&!model.needsProjectAccess&&tab!=0&&model.message.isNotBlank())Glass("STATUS"){Text(model.message)}
             Spacer(Modifier.height(16.dp))
         }
     }
