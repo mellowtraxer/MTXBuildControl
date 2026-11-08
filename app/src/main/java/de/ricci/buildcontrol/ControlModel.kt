@@ -56,6 +56,7 @@ class ControlModel(app: Application): AndroidViewModel(app) {
         }
         store.saveToken(value);api=client;connected=true;needsProjectAccess=false;snapshot=result;dispatchable=client.dispatchable
         rememberMode(p,result.mode)
+        runCatching { discover() }
         message="Verbunden als $user · ${p.name} ist bereit."
     }
     fun logout(){if(busy)return;store.logout();api=null;connected=false;needsProjectAccess=false;snapshot=null;downloads=emptyList();updateAssets=emptyList();message="Abgemeldet. Token auf diesem Gerät entfernt."}
@@ -72,7 +73,22 @@ class ControlModel(app: Application): AndroidViewModel(app) {
         snapshot=result;dispatchable=client.dispatchable;needsProjectAccess=false
         rememberMode(p,result.mode)
     }
-    fun refresh()=work{load()}
+    private suspend fun discover() {
+        val client=api ?: return
+        val owner=selected.repo.substringBefore('/')
+        val found=withContext(Dispatchers.IO){client.discoverProjects(owner)}
+        val existing=projects.map { it.repo.lowercase() }.toSet()
+        val additions=found.filter { it.repo.lowercase() !in existing }
+        if(additions.isNotEmpty()){
+            projects=projects+additions
+            store.saveProjects(projects)
+            savedModes=projects.associateWith { store.runnerMode(it) }
+        }
+    }
+    fun refresh()=work{
+        runCatching { discover() }.onFailure { message="Projektliste konnte nicht aktualisiert werden: ${it.message}" }
+        load()
+    }
     fun select(p:Project){if(busy)return;selected=p;store.selected=p.repo;snapshot=null;downloads=emptyList();needsProjectAccess=false;message="";if(connected)refresh()}
     fun saveProject(repo:String,branch:String,name:String)=work{
         val clean=repo.trim().removePrefix("https://github.com/").removeSuffix("/").removeSuffix(".git")
