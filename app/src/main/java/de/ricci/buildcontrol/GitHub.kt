@@ -44,6 +44,16 @@ class GitHub(private val token: String, private val base: String = "https://api.
         return out.take(limit)
     }
     fun user() = json("user").getString("login")
+    fun discoverProjects(owner: String): List<Project> {
+        // Merge token-accessible repositories with public repositories: a newly
+        // created public repo may not yet be included in a fine-grained token.
+        val accessible = list("user/repos?affiliation=owner&sort=updated", "items")
+        val public = list("users/${enc(owner)}/repos?type=owner&sort=updated", "items")
+        return (accessible + public)
+            .distinctBy { it.getString("full_name").lowercase() }
+            .filter { it.getString("full_name").substringBefore('/').equals(owner, true) && !it.optBoolean("archived") }
+            .map { Project(it.getString("full_name"), it.getString("default_branch"), it.getString("name")) }
+    }
     fun defaultBranch(repo: String) = json("repos/$repo").getString("default_branch")
     fun branches(repo: String) = list("repos/$repo/branches", "items").map { it.getString("name") }
     fun file(p: Project, path: String): RemoteFile {
