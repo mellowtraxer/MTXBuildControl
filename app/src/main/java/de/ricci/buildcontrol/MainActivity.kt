@@ -39,7 +39,7 @@ import java.time.Instant
 import java.time.Duration
 
 class MainActivity: ComponentActivity(){
-    override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);enableEdgeToEdge();window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);enableEdgeToEdge()
         setContent{MaterialTheme(colorScheme=darkColorScheme(primary=Color(0xFFB998FF),background=Color.Black,surface=Color(0xFF121016),onSurface=Color(0xFFF0EAF8))){ Surface(Modifier.fillMaxSize(),color=Color.Black){ControlApp()} }}
     }
 }
