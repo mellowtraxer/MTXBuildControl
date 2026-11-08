@@ -85,6 +85,7 @@ private val Purple=Color(0xFFB998FF)
         if(model.busy)LinearProgressIndicator(Modifier.fillMaxWidth())
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(14.dp)){
             Glass(if(model.connected)"PROJEKT" else "DEIN PROJEKT"){
+                if(model.connected) TextButton(onClick={model.refresh()},enabled=!model.busy){Text("Projekte suchen / aktualisieren")}
                 model.projects.forEach{p->FilterChip(selected=model.selected==p,onClick={tab=0;model.select(p)},enabled=!model.busy,label={Text(p.name)})}
                 if(model.connected){
                     TextButton(onClick={settings=!settings}){Text(if(settings)"Einstellungen schließen" else "Einstellungen")}
