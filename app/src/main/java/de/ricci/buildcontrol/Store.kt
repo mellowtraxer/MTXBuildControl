@@ -34,7 +34,9 @@ class Store(context: Context) {
     fun logout() { prefs.edit().remove("token").apply() }
     fun projects(): List<Project> {
         val a=JSONArray(prefs.getString("projects",null) ?: "[]")
-        return if(a.length()==0) listOf(Project("mellowtraxer/RiccisTidalPlaylistCreator","feature/mtx-studio-core","MTX Studio"),Project("mellowtraxer/GarminSleepTasker","sleepsync-compose-v2","SleepSync"),Project("mellowtraxer/MarioChess3D","main","MarioChess3D")) else (0 until a.length()).map { a.getJSONObject(it).let{Project(it.getString("repo"),it.getString("branch"),it.getString("name"))} }
+        val defaults = listOf(Project("mellowtraxer/RiccisTidalPlaylistCreator","feature/mtx-studio-core","MTX Studio"),Project("mellowtraxer/GarminSleepTasker","sleepsync-compose-v2","SleepSync"),Project("mellowtraxer/MarioChess3D","main","MarioChess3D"))
+        val saved = (0 until a.length()).map { a.getJSONObject(it).let{Project(it.getString("repo"),it.getString("branch"),it.getString("name"))} }
+        return saved + defaults.filter { default -> saved.none { it.repo.equals(default.repo, ignoreCase=true) } }
     }
     fun saveProjects(projects: List<Project>) { val a=JSONArray(); projects.forEach{a.put(JSONObject().put("repo",it.repo).put("branch",it.branch).put("name",it.name))};prefs.edit().putString("projects",a.toString()).apply() }
     // The repository and branch form one independent runner setting.
