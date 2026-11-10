@@ -1,0 +1,111 @@
+name: MTX Nexus validation
+on:
+  push:
+    branches: [feature/mtx-nexus]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  routing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test registry and routing
+        run: python3 -m unittest discover -s nexus/tests -v
+      - name: Verify the hosted route for this public repository
+        id: route
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 -m nexus.runner --trusted-ref feature/mtx-nexus
+          --capability android-build --worker nexus-pc-worker.yml --worker-artifact unused-in-public
+      - name: Check cloud selection
+        env:
+          TARGET: ${{ steps.route.outputs.target }}
+        run: test "$TARGET" = cloud
+  android:
+    needs: routing
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      BUILD_NUMBER: "18"
+      MTX_SIGNING_FILE: ${{ github.workspace }}/.signing/mtx-debug.jks
+      MTX_EXPECTED_SIGNER_SHA256: a0100a3fdf1d503116c0f880d5a723bc648aa575953cd62dfa8cee929f301171
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Restore persistent app signing identity
+        env:
+          KEYSTORE_BASE64: ${{ secrets.MTX_BUILD_CONTROL_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$KEYSTORE_BASE64" || { echo 'Missing MTX_BUILD_CONTROL_KEYSTORE_BASE64 signing secret'; exit 1; }
+          mkdir -p "$(dirname "$MTX_SIGNING_FILE")"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$MTX_SIGNING_FILE"
+          keytool -list -keystore "$MTX_SIGNING_FILE" -storepass android -alias androiddebugkey >/dev/null
+      - name: Download and verify the currently published APK
+        env:
+          BUILD_NUMBER: "17"
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          test "$latest" = build-17 || { echo "Published baseline changed: $latest"; exit 1; }
+          gh release download build-17 --repo "$GITHUB_REPOSITORY" --pattern MTXBuildControl.apk \
+            --output "$RUNNER_TEMP/nexus-previous.apk"
+          echo "10f0283066342410222c73cb265366f4800f7e44ea6453e6f880cb20662cf8ab  $RUNNER_TEMP/nexus-previous.apk" | sha256sum --check
+          bash scripts/verify-apk.sh "$RUNNER_TEMP/nexus-previous.apk"
+      - name: Unit tests, lint and APK
+        run: gradle --no-daemon --max-workers=2 :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Verify built APK identity and signature
+        run: bash scripts/verify-apk.sh
+      - name: Verify emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Test APK update, data retention and app startup
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: bash scripts/test-nexus-update.sh
+      - name: Verify tested APK identity and signature
+        run: bash scripts/verify-apk.sh
+      - name: Stage tested APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk MTXBuildControl.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MTXBuildControl-Nexus-tested-${{ env.BUILD_NUMBER }}
+          retention-days: 14
+          path: MTXBuildControl.apk
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports-${{ github.run_number }}
+          path: |
+            app/build/reports/
+            app/build/outputs/androidTest-results/
+      - name: Remove temporary signing material
+        if: always()
+        run: rm -f -- "$MTX_SIGNING_FILE"

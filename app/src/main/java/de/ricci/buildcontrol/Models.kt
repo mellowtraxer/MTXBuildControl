@@ -5,16 +5,18 @@ import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.constructor.SafeConstructor
 
-data class Project(val repo: String, val branch: String, val name: String = repo.substringAfter('/')) {
+data class Project(val repo: String, val branch: String, val name: String = repo.substringAfter('/'), val id: Long? = null, val archived: Boolean = false) {
     init { require(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+").matches(repo)) { "Repository als Besitzer/Name angeben." }; require(branch.isNotBlank()) }
 }
 data class Runner(val name: String, val os: String, val status: String, val busy: Boolean, val labels: Set<String>)
 data class RemoteFile(val text: String, val sha: String)
 data class Workflow(val id: Long, val name: String, val path: String, val dispatch: Map<String, Input>)
 data class Input(val required: Boolean, val default: String, val options: List<String>, val type: String)
-data class Build(val id: Long, val number: Long, val name: String, val status: String, val conclusion: String, val branch: String, val sha: String, val url: String, val started: String, val updated: String) {
+data class Build(val id: Long, val number: Long, val name: String, val status: String, val conclusion: String, val branch: String, val sha: String, val url: String, val started: String, val updated: String, val attempt: Int = 1) {
     val label get() = when { status == "queued" || status == "waiting" || status == "pending" -> "Wartend"; status != "completed" -> "Läuft"; conclusion == "success" -> "Erfolgreich"; conclusion == "failure" -> "Fehlgeschlagen"; else -> conclusion }
 }
+data class AppUpdate(val asset: PackageAsset, val versionCode: Int, val notes: String)
+
 data class PackageAsset(val title: String, val apiPath: String, val zip: Boolean, val version: String, val digest: String = "")
 data class Snapshot(val project: Project, val mode: String?, val workflows: List<Workflow>, val runners: List<Runner>, val runnerError: String?, val builds: List<Build>, val assets: List<PackageAsset>, val notes: List<String>)
 

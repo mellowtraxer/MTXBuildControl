@@ -11,14 +11,16 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     env:
       BUILD_NUMBER: ${{ github.run_number }}
       MTX_SIGNING_FILE: ${{ github.workspace }}/.signing/mtx-debug.jks
       MTX_EXPECTED_SIGNER_SHA256: a0100a3fdf1d503116c0f880d5a723bc648aa575953cd62dfa8cee929f301171
     permissions:
-      contents: write
+      contents: read
       actions: read
+    outputs:
+      digest: ${{ steps.apk.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,6 +44,20 @@ jobs:
           mkdir -p "$(dirname "$MTX_SIGNING_FILE")"
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$MTX_SIGNING_FILE"
           keytool -list -keystore "$MTX_SIGNING_FILE" -storepass android -alias androiddebugkey >/dev/null
+      - name: Verify the latest published baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest")
+          tag=$(jq -er '.tag_name | select(test("^build-[1-9][0-9]*$"))' <<< "$release")
+          previous=${tag#build-}
+          (( previous < BUILD_NUMBER )) || { echo "::error::Published version is already $previous."; exit 1; }
+          digest=$(jq -er '.assets[] | select(.name == "MTXBuildControl.apk" and .state == "uploaded") | .digest | capture("^sha256:(?<hex>[0-9a-f]{64})$").hex' <<< "$release")
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern MTXBuildControl.apk \
+            --output "$RUNNER_TEMP/nexus-previous.apk"
+          echo "$digest  $RUNNER_TEMP/nexus-previous.apk" | sha256sum --check
+          BUILD_NUMBER="$previous" bash scripts/verify-apk.sh "$RUNNER_TEMP/nexus-previous.apk"
       - name: Unit tests, lint and APK
         env:
           BUILD_NUMBER: ${{ github.run_number }}
@@ -50,33 +66,32 @@ jobs:
         run: gradle --no-daemon --max-workers=2 :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
       - name: Verify built APK identity and signature
         run: bash scripts/verify-apk.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: MTXBuildControl-${{ github.run_number }}
-          path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 30
-          if-no-files-found: error
       - name: Verify emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Real Android startup test
+      - name: Test update from the latest published APK and Android startup
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: gradle --no-daemon --max-workers=2 :app:connectedDebugAndroidTest
+          script: bash scripts/test-nexus-update.sh
       - name: Verify tested APK identity and signature
         run: bash scripts/verify-apk.sh
-      - name: Publish installable debug APK
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Stage the verified release APK
+        id: apk
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk MTXBuildControl.apk
-          gh release create "build-${GITHUB_RUN_NUMBER}" MTXBuildControl.apk --title "MTX Build Control 1.0.${GITHUB_RUN_NUMBER}" --notes "Debug APK. Source: ${GITHUB_SHA}. Unit tests, lint and Android emulator startup passed. Pixel hardware and authenticated runner switching require on-device verification."
+          echo "digest=$(sha256sum MTXBuildControl.apk | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MTXBuildControl-${{ github.run_number }}
+          path: MTXBuildControl.apk
+          retention-days: 14
+          if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -88,3 +103,38 @@ jobs:
       - name: Remove temporary signing material
         if: always()
         run: rm -f -- "$MTX_SIGNING_FILE"
+
+  release:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: MTXBuildControl-${{ github.run_number }}
+      - name: Publish the exact APK tested by the build job
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APK_SHA256: ${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$APK_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          echo "$APK_SHA256  MTXBuildControl.apk" | sha256sum --check
+          tag="build-$GITHUB_RUN_NUMBER"
+          releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")
+          newest=$(jq -r '[.[][] | select(.draft == false and .prerelease == false) | .tag_name | capture("^build-(?<code>[0-9]+)$").code | tonumber] | max // 0' <<< "$releases")
+          if (( newest >= GITHUB_RUN_NUMBER )); then
+            if (( newest == GITHUB_RUN_NUMBER )) && jq -e --arg tag "$tag" --arg hash "sha256:$APK_SHA256" \
+              'any(.[][]; .tag_name == $tag and any(.assets[]; .name == "MTXBuildControl.apk" and .digest == $hash))' <<< "$releases" >/dev/null; then
+              echo "This exact APK is already published."
+              exit 0
+            fi
+            echo "::error::Release version collision or a newer release exists."
+            exit 1
+          fi
+          gh release create "$tag" MTXBuildControl.apk --target "$GITHUB_SHA" --latest \
+            --title "MTX Build Control 1.0.$GITHUB_RUN_NUMBER" \
+            --notes "Nexus Control Center. Stable OTA checks on startup and foreground, live project and job information, and build cancellation. Validated signed upgrade from the preceding public APK with retained application data. Source: $GITHUB_SHA."
