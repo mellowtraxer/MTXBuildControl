@@ -4,7 +4,7 @@ import android.os.Bundle
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
-import android.content.pm.PackageManager
+import de.ricci.nexus.ota.AndroidOta
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -67,14 +67,8 @@ private val Purple=Color(0xFFB998FF)
     fun open(url:String){runCatching{context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url)))}.onFailure{installError="Kein Browser verfügbar."}}
     fun install(file:File){
         try{
-            val info=context.packageManager.getPackageArchiveInfo(file.path,PackageManager.GET_SIGNING_CERTIFICATES) ?: error("Ungültige APK.")
-            if(info.packageName==context.packageName){
-                require(info.longVersionCode>BuildConfig.VERSION_CODE){"Diese Build-Control-Version ist nicht neuer."}
-                val installed=context.packageManager.getPackageInfo(context.packageName,PackageManager.GET_SIGNING_CERTIFICATES)
-                val ours=installed.signingInfo!!.apkContentsSigners.map{it.toCharsString()}.toSet()
-                val theirs=info.signingInfo!!.apkContentsSigners.map{it.toCharsString()}.toSet()
-                require(ours==theirs){"Update hat eine andere Signatur. Installation abgelehnt."}
-            }
+            val info = context.packageManager.getPackageArchiveInfo(file.path, 0) ?: error("Ungültige APK.")
+            if (info.packageName == context.packageName) AndroidOta.verifyUpdate(context, file)
             if(!context.packageManager.canRequestPackageInstalls()){
                 pendingInstall=file
                 context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:${context.packageName}")))

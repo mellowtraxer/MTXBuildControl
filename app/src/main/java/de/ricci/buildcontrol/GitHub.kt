@@ -11,11 +11,11 @@ import java.util.concurrent.TimeUnit
 import java.net.URLEncoder
 import java.io.File
 import java.util.zip.ZipInputStream
-import java.security.MessageDigest
+import de.ricci.nexus.ota.AndroidOta
 
 class ApiException(val status: Int, message: String) : Exception(message)
 class GitHub(private val token: String, private val base: String = "https://api.github.com/") {
-    private val client = OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).callTimeout(180, TimeUnit.SECONDS).build()
+    private val client = OkHttpClient.Builder().followSslRedirects(false).connectTimeout(20, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).callTimeout(180, TimeUnit.SECONDS).build()
     private fun request(path: String, method: String = "GET", body: JSONObject? = null, binary: Boolean = false): Request {
         require(!path.startsWith('/') && !path.contains("://"))
         val b = Request.Builder().url(base + path).header("Accept", if (binary) "application/octet-stream" else "application/vnd.github+json").header("X-GitHub-Api-Version", "2022-11-28").header("User-Agent", "MTXBuildControl")
@@ -201,8 +201,7 @@ class GitHub(private val token: String, private val base: String = "https://api.
             }
             if (!asset.zip) {
                 if (asset.digest.startsWith("sha256:")) {
-                    val hash = destination.inputStream().use { source -> val md = MessageDigest.getInstance("SHA-256"); val buf=ByteArray(65536); while(true){val n=source.read(buf);if(n<0)break;md.update(buf,0,n)}; md.digest().joinToString(""){"%02x".format(it)} }
-                    require(hash == asset.digest.removePrefix("sha256:")) { "APK-Prüfsumme stimmt nicht überein." }
+                    AndroidOta.verifySha256(destination, asset.digest.removePrefix("sha256:"))
                 }
                 val apk=File(folder,"package-${System.nanoTime()}.apk"); check(destination.renameTo(apk)); return listOf(apk)
             }

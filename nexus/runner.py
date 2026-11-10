@@ -10,7 +10,6 @@ from nexus.github import GitHub, GitHubError
 
 BASE_LABELS = {"self-hosted", "windows", "x64", "ricci", "mtx-nexus"}
 CAPABILITIES = {"android-build", "godot-build"}
-ACTIVE = {"in_progress"}
 
 
 def select_runner(repository, event, trusted_ref, preference, capability, runners):
@@ -72,8 +71,12 @@ def supervise(api, repo, worker, ref, sha, queue_seconds, execution_seconds,
                 if run["conclusion"] == "success":
                     return "pc", "worker-succeeded", run_id
                 return "cloud", "worker-failed", run_id
-            if run["status"] in ACTIVE and execution_deadline is None:
-                execution_deadline = now + execution_seconds
+            if execution_deadline is None and run["status"] == "in_progress":
+                jobs = api.request(run_path + "/jobs")["jobs"]
+                # A run can be "in_progress" while its PC job is still queued.
+                if any(job["status"] == "in_progress" and job.get("runner_name") == "RICCI"
+                       for job in jobs):
+                    execution_deadline = clock() + execution_seconds
             deadline = execution_deadline if execution_deadline is not None else queue_deadline
             if now >= deadline:
                 if execution_deadline is not None:
@@ -90,6 +93,23 @@ def supervise(api, repo, worker, ref, sha, queue_seconds, execution_seconds,
     return "cloud", reason, run_id
 
 
+def route_for_run(api, runner_token, repo, event, trusted, preference, capability):
+    if not trusted or event not in {"push", "workflow_dispatch"}:
+        return "cloud", "repository-or-ref-ineligible"
+    if preference == "github":
+        return "cloud", "cloud-override"
+    try:
+        metadata = api.request(f"/repos/{repo}")
+        if metadata["private"] is not True:
+            return "cloud", "repository-or-ref-ineligible"
+        if not runner_token:
+            return "cloud", "runner-authorization-missing"
+        runners = list(GitHub(runner_token).pages(f"/repos/{repo}/actions/runners", "runners"))
+        return select_runner(metadata, event, trusted, preference, capability, runners)
+    except (GitHubError, ValueError, KeyError, TypeError):
+        return "cloud", "runner-status-unavailable"
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--capability", required=True, choices=sorted(CAPABILITIES))
@@ -103,23 +123,12 @@ def main():
     ref = os.environ["GITHUB_REF"]
     trusted = ref == f"refs/heads/{args.trusted_ref}"
     runner_token = os.getenv("NEXUS_RUNNER_READ_TOKEN")
-    target, reason, run_id = "cloud", "runner-authorization-missing", None
-    if args.preference == "github":
-        reason = "cloud-override"
-    elif not trusted or event not in {"push", "workflow_dispatch"}:
-        reason = "repository-or-ref-ineligible"
-    elif runner_token:
-        try:
-            metadata = api.request(f"/repos/{repo}")
-            runners = (list(GitHub(runner_token).pages(f"/repos/{repo}/actions/runners", "runners"))
-                       if metadata["private"] is True else [])
-            target, reason = select_runner(metadata, event, trusted, args.preference,
-                                           args.capability, runners)
-        except (GitHubError, ValueError, KeyError, TypeError):
-            reason = "runner-status-unavailable"
-        if target == "pc":
-            target, reason, run_id = supervise(api, repo, args.worker, args.trusted_ref,
-                                                os.environ["GITHUB_SHA"], 90, 1500)
+    target, reason = route_for_run(api, runner_token, repo, event, trusted,
+                                   args.preference, args.capability)
+    run_id = None
+    if target == "pc":
+        target, reason, run_id = supervise(api, repo, args.worker, args.trusted_ref,
+                                            os.environ["GITHUB_SHA"], 90, 1500)
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         print(f"target={target}\nreason={reason}\nworker_run_id={run_id or ''}", file=out)
     print(f"MTX Nexus route: {target} ({reason})")

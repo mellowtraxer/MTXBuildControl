@@ -2,7 +2,7 @@ import unittest
 
 from nexus.github import GitHubError
 from nexus.registry import classify, inventory
-from nexus.runner import BASE_LABELS, select_runner, supervise
+from nexus.runner import BASE_LABELS, route_for_run, select_runner, supervise
 
 
 def runner(status="online", busy=False, name="RICCI"):
@@ -32,12 +32,23 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(self.route([candidate]), ("cloud", "runner-missing-or-label-collision"))
 
 
+    def test_github_api_error_is_unknown_and_falls_back(self):
+        class UnavailableApi:
+            def request(self, path):
+                raise GitHubError(503)
+
+        result = route_for_run(UnavailableApi(), "", "owner/private", "push", True,
+                               "auto", "android-build")
+        self.assertEqual(result, ("cloud", "runner-status-unavailable"))
+
+
 class Worker:
-    def __init__(self, states, fail_dispatch=False):
+    def __init__(self, states, fail_dispatch=False, job_status="in_progress"):
         self.states = iter(states)
         self.posts = []
         self.fail_dispatch = fail_dispatch
         self.now = 0
+        self.job_status = job_status
 
     def request(self, path, payload=None):
         if payload is not None:
@@ -48,6 +59,8 @@ class Worker:
             return {"workflow_run_id": 42}
         if path.endswith("cancel"):
             return None
+        if path.endswith("/jobs"):
+            return {"jobs": [{"status": self.job_status, "runner_name": "RICCI"}]}
         return next(self.states)
 
     def sleep(self, seconds):
@@ -73,6 +86,11 @@ class SupervisionTests(unittest.TestCase):
                 worker = Worker([{"status": status}] * count)
                 self.assertEqual(worker.run(), ("cloud", reason, 42))
                 self.assertTrue(worker.posts[1][0].endswith("/42/cancel"))
+
+    def test_active_workflow_with_queued_pc_job_uses_queue_timeout(self):
+        worker = Worker([{"status": "in_progress"}] * 3, job_status="queued")
+        self.assertEqual(worker.run(), ("cloud", "worker-queue-timeout", 42))
+        self.assertEqual(worker.now, 10)
 
     def test_dispatch_failure_is_not_retried(self):
         worker = Worker([], fail_dispatch=True)

@@ -2,7 +2,7 @@ package de.ricci.buildcontrol
 
 import android.app.Application
 import android.os.SystemClock
-import android.content.pm.PackageManager
+import de.ricci.nexus.ota.AndroidOta
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
@@ -213,15 +213,7 @@ class ControlModel(app: Application): AndroidViewModel(app) {
                         updateProgress = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else -1f
                     }.single()
                     try {
-                        val pm = app.packageManager
-                        val flags = PackageManager.GET_SIGNING_CERTIFICATES
-                        val next = pm.getPackageArchiveInfo(downloaded.path, flags) ?: error("Ungültige Update-APK.")
-                        require(next.packageName == app.packageName && next.longVersionCode == update.versionCode.toLong() &&
-                            next.longVersionCode > BuildConfig.VERSION_CODE) { "Paket oder Version des Updates stimmt nicht überein." }
-                        val expected = pm.getPackageInfo(app.packageName, flags).signingInfo?.apkContentsSigners
-                        val actual = next.signingInfo?.apkContentsSigners
-                        require(!expected.isNullOrEmpty() && !actual.isNullOrEmpty() &&
-                            expected.toSet() == actual.toSet()) { "Update hat eine andere Signatur." }
+                        AndroidOta.verifyUpdate(app, downloaded, update.versionCode.toLong())
                         downloaded
                     } catch (e: Exception) {
                         downloaded.delete()

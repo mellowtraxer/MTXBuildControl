@@ -2,8 +2,9 @@
 
 The validation workflow exercises the routing policy and builds a test APK on
 GitHub-hosted infrastructure. The validation APK uses the existing signing
-identity and versionCode 1, so it is intended for a clean test device or
-emulator. Production builds continue through the existing signed workflow.
+identity and versionCode 2, so it is intended for a clean test device or
+emulator. The emulator upgrades from versionCode 1, checks data retention,
+and tests rejection of an incompatible signer and a downgrade. Production builds continue through the existing signed workflow.
 
 ## Routing contract
 
@@ -46,3 +47,11 @@ Unknown and truncated trees are reported as such.
 
 Run the routing and registry tests with
 `python3 -m unittest discover -s nexus/tests -v`.
+
+## Android OTA validation module
+
+`:android-ota` is an Android library that checks SHA-256, package identity,
+version monotonicity, declared version, and exact current signers. Build
+Control uses it for its public stable GitHub releases. Existing apps can
+reuse the validation with their current manifest and installer. Metadata
+transport, channel policy, and app-specific UI belong to the caller.
