@@ -55,3 +55,19 @@ version monotonicity, declared version, and exact current signers. Build
 Control uses it for its public stable GitHub releases. Existing apps can
 reuse the validation with their current manifest and installer. Metadata
 transport, channel policy, and app-specific UI belong to the caller.
+
+### Scheduled private inventory
+
+Copy `nexus/templates/private-registry.yml` to
+`.github/workflows/nexus-registry.yml` on the default branch of an owner-only
+private control repository. The workflow runs twice an hour and on demand.
+Keep the inventory repository restricted to users who may see metadata for
+all inventoried projects. A public repository is ineligible.
+
+Install a GitHub App with Metadata read and Contents read. Choose all
+repositories at installation time if newly created repositories should be
+included without per-repository selection. Set the App client ID in
+`NEXUS_DISCOVERY_APP_CLIENT_ID` and the private key in the Actions secret
+`NEXUS_DISCOVERY_APP_PRIVATE_KEY`. The scheduled workflow requests a short-lived
+installation token and keeps successful inventory snapshots for seven days.
+The workflow's output is an inventory, not permission to run the listed code.
