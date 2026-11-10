@@ -31,7 +31,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      BUILD_NUMBER: "18"
       MTX_SIGNING_FILE: ${{ github.workspace }}/.signing/mtx-debug.jks
       MTX_EXPECTED_SIGNER_SHA256: a0100a3fdf1d503116c0f880d5a723bc648aa575953cd62dfa8cee929f301171
     permissions:
@@ -60,17 +59,21 @@ jobs:
           mkdir -p "$(dirname "$MTX_SIGNING_FILE")"
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$MTX_SIGNING_FILE"
           keytool -list -keystore "$MTX_SIGNING_FILE" -storepass android -alias androiddebugkey >/dev/null
-      - name: Download and verify the currently published APK
+      - name: Select a test build above the currently published APK
         env:
-          BUILD_NUMBER: "17"
           GH_TOKEN: ${{ github.token }}
         run: |
-          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
-          test "$latest" = build-17 || { echo "Published baseline changed: $latest"; exit 1; }
-          gh release download build-17 --repo "$GITHUB_REPOSITORY" --pattern MTXBuildControl.apk \
+          set -euo pipefail
+          release=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest")
+          tag=$(jq -er '.tag_name | select(test("^build-[1-9][0-9]*$"))' <<< "$release")
+          previous=${tag#build-}
+          (( previous < 2100000000 ))
+          digest=$(jq -er '.assets[] | select(.name == "MTXBuildControl.apk" and .state == "uploaded") | .digest | capture("^sha256:(?<hex>[0-9a-f]{64})$").hex' <<< "$release")
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern MTXBuildControl.apk \
             --output "$RUNNER_TEMP/nexus-previous.apk"
-          echo "10f0283066342410222c73cb265366f4800f7e44ea6453e6f880cb20662cf8ab  $RUNNER_TEMP/nexus-previous.apk" | sha256sum --check
-          bash scripts/verify-apk.sh "$RUNNER_TEMP/nexus-previous.apk"
+          echo "$digest  $RUNNER_TEMP/nexus-previous.apk" | sha256sum --check
+          BUILD_NUMBER="$previous" bash scripts/verify-apk.sh "$RUNNER_TEMP/nexus-previous.apk"
+          echo "BUILD_NUMBER=$((previous + 1))" >> "$GITHUB_ENV"
       - name: Unit tests, lint and APK
         run: gradle --no-daemon --max-workers=2 :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
       - name: Verify built APK identity and signature

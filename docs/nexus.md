@@ -2,8 +2,8 @@
 
 The validation workflow exercises the routing policy and builds a test APK on
 GitHub-hosted infrastructure. The validation APK uses the existing signing
-identity and versionCode 18. The emulator upgrades from the actual published
-versionCode 17 APK, checks data retention,
+identity and a versionCode one greater than the latest published release.
+The emulator upgrades from that published APK, checks data retention,
 and tests rejection of an incompatible signer and a downgrade. Production builds continue through the existing signed workflow.
 
 ## Routing contract
