@@ -149,5 +149,38 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(result["projects"][0]["type"], "godot")
 
 
+    def test_branch_workflows_and_repo_removed_during_scan(self):
+        class AppApi:
+            def pages(self, path, field=None):
+                if path == "/installation/repositories":
+                    return iter([
+                        {"id": i, "name": name, "full_name": f"mine/{name}",
+                         "owner": {"login": "mine"}, "private": True,
+                         "archived": name == "app", "default_branch": "main"}
+                        for i, name in enumerate(("gone", "app"))
+                    ])
+                if path == "/repos/mine/gone/branches":
+                    raise GitHubError(404)
+                return iter([
+                    {"name": name, "commit": {"sha": sha}}
+                    for name, sha in (("main", "a"*40), ("feature/app", "b"*40))
+                ])
+
+            def request(self, path):
+                if path.endswith("a"*40 + "?recursive=1"):
+                    return {"truncated": False, "tree": []}
+                return {"truncated": False, "tree": [
+                    {"path": "app/src/main/AndroidManifest.xml", "type": "blob"},
+                    {"path": ".github/workflows/android.yml", "type": "blob"},
+                ]}
+
+        projects = inventory(AppApi(), "mine")["projects"]
+        self.assertEqual([project["repository"] for project in projects], ["mine/app"])
+        self.assertTrue(projects[0]["archived"])
+        feature = projects[0]["branchDetails"]["feature/app"]
+        self.assertEqual(feature["type"], "android")
+        self.assertEqual(feature["workflows"], [".github/workflows/android.yml"])
+
+
 if __name__ == "__main__":
     unittest.main()

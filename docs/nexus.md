@@ -2,8 +2,8 @@
 
 The validation workflow exercises the routing policy and builds a test APK on
 GitHub-hosted infrastructure. The validation APK uses the existing signing
-identity and versionCode 2, so it is intended for a clean test device or
-emulator. The emulator upgrades from versionCode 1, checks data retention,
+identity and versionCode 18. The emulator upgrades from the actual published
+versionCode 17 APK, checks data retention,
 and tests rejection of an incompatible signer and a downgrade. Production builds continue through the existing signed workflow.
 
 ## Routing contract
@@ -43,7 +43,9 @@ The inventory is a complete snapshot of visible projects keyed by GitHub's
 repository IDs. A renamed project retains its ID. A disappeared project might
 have been deleted or its installation access removed. The output can contain
 private metadata. Keep it within the authorized service or user session.
-Unknown and truncated trees are reported as such.
+Branch details include the build type and workflow files for each branch.
+Unknown and truncated trees are reported as such. Repositories that disappear
+during the scan are omitted from the next complete snapshot.
 
 Run the routing and registry tests with
 `python3 -m unittest discover -s nexus/tests -v`.
