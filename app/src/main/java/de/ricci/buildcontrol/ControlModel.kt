@@ -1,9 +1,13 @@
 package de.ricci.buildcontrol
 
 import android.app.Application
+import android.os.SystemClock
+import android.content.pm.PackageManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.getValue
@@ -29,14 +33,22 @@ class ControlModel(app: Application): AndroidViewModel(app) {
     var message by mutableStateOf(""); private set
     var detail by mutableStateOf<String?>(null)
     var downloads by mutableStateOf<List<File>>(emptyList())
-    var updateAssets by mutableStateOf<List<PackageAsset>>(emptyList())
+    var updatePrompt by mutableStateOf<AppUpdate?>(null); private set
+    var updateError by mutableStateOf<String?>(null); private set
+    var updateFile by mutableStateOf<File?>(null); private set
+    var updateChecking by mutableStateOf(false); private set
+    var updateProgress by mutableStateOf<Float?>(null); private set
+    private var lastUpdateCheck: Long? = null
+    private var lastDiscovery: Long? = null
+    var unavailableProjects by mutableStateOf<Set<Long>>(emptySet()); private set
+    private val publicReleases = GitHub("")
     var dispatchable by mutableStateOf<Set<String>>(emptySet()); private set
     init { runCatching {store.token()}.onSuccess {if(it.isNotBlank()){api=GitHub(it);connected=true;refresh()}}.onFailure{message="Sicherer Token nicht lesbar. Bitte erneut verbinden."} }
     private fun work(action: suspend () -> Unit) {
         if(busy)return
         busy=true;message=""
         viewModelScope.launch {
-            try{action()}catch(e:Exception){
+            try{action()}catch(e:CancellationException){throw e}catch(e:Exception){
                 if(e is ApiException && e.status==401){
                     store.logout();api=null;connected=false;needsProjectAccess=false;snapshot=null
                     message="Deine GitHub-Freigabe ist ungültig oder abgelaufen. Bitte unten neu verbinden."
@@ -59,7 +71,7 @@ class ControlModel(app: Application): AndroidViewModel(app) {
         runCatching { discover() }
         message="Verbunden als $user · ${p.name} ist bereit."
     }
-    fun logout(){if(busy)return;store.logout();api=null;connected=false;needsProjectAccess=false;snapshot=null;downloads=emptyList();updateAssets=emptyList();message="Abgemeldet. Token auf diesem Gerät entfernt."}
+    fun logout(){if(busy)return;store.logout();api=null;connected=false;needsProjectAccess=false;snapshot=null;downloads=emptyList();message="Abgemeldet. Token auf diesem Gerät entfernt."}
     private suspend fun load(){
         val p=selected;val client=api ?: return
         val result=try {withContext(Dispatchers.IO){client.snapshot(p)}} catch(e:ApiException){
@@ -77,13 +89,32 @@ class ControlModel(app: Application): AndroidViewModel(app) {
         val client=api ?: return
         val owner=selected.repo.substringBefore('/')
         val found=withContext(Dispatchers.IO){client.discoverProjects(owner)}
-        val existing=projects.map { it.repo.lowercase() }.toSet()
-        val additions=found.filter { it.repo.lowercase() !in existing }
-        if(additions.isNotEmpty()){
-            projects=projects+additions
-            store.saveProjects(projects)
-            savedModes=projects.associateWith { store.runnerMode(it) }
+        val byId = found.associateBy { it.id }
+        val byName = found.associateBy { it.repo.lowercase() }
+        val reconciled = projects.map { previous ->
+            val current = if (previous.id != null) byId[previous.id] else byName[previous.repo.lowercase()]
+            current?.copy(branch = previous.branch, name = if (previous.name == previous.repo.substringAfter('/'))
+                current.name else previous.name) ?: previous
         }
+        val knownIds = reconciled.mapNotNull { it.id }.toSet()
+        val next = reconciled + found.filter { it.id !in knownIds }
+        unavailableProjects = reconciled.filter {
+            it.id != null && it.repo.substringBefore('/').equals(owner, true) && it.id !in byId
+        }.mapNotNull { it.id }.toSet()
+        projects.zip(reconciled).forEach { (previous, current) ->
+            if (previous.repo != current.repo && store.runnerMode(current) == null) {
+                store.runnerMode(previous)?.let { store.saveRunnerMode(current, it) }
+            }
+        }
+        val current = reconciled[projects.indexOf(selected).coerceAtLeast(0)]
+        if (current.repo != selected.repo) {
+            store.selected = current.repo
+        }
+        projects = next
+        selected = current
+        store.saveProjects(next)
+        savedModes = next.associateWith { store.runnerMode(it) }
+        lastDiscovery = SystemClock.elapsedRealtime()
     }
     fun refresh()=work{
         runCatching { discover() }.onFailure { message="Projektliste konnte nicht aktualisiert werden: ${it.message}" }
@@ -95,9 +126,10 @@ class ControlModel(app: Application): AndroidViewModel(app) {
         require(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+").matches(clean)) { "Repository als Besitzer/Name angeben." }
         val client=api ?: error("Zuerst GitHub verbinden.")
         val actualBranch=withContext(Dispatchers.IO){if(branch.isBlank())client.defaultBranch(clean) else branch.trim()}
-        val p=Project(clean,actualBranch,name.ifBlank{clean.substringAfter('/')})
+        val existing = projects.firstOrNull { it.repo.equals(clean, true) }
+        val p=Project(clean,actualBranch,name.ifBlank{clean.substringAfter('/')},existing?.id,existing?.archived ?: false)
         withContext(Dispatchers.IO){client.json("repos/${p.repo}/branches/${GitHub.enc(p.branch)}")}
-        projects=projects.filter{it.repo!=p.repo}+p;store.saveProjects(projects);selected=p;store.selected=p.repo;snapshot=null;load()
+        projects=projects.filterNot{it.repo.equals(p.repo, true)}+p;store.saveProjects(projects);selected=p;store.selected=p.repo;snapshot=null;load()
     }
     fun branches()=work{detail=withContext(Dispatchers.IO){api!!.branches(selected.repo).joinToString("\n")}}
     fun switch(target:String)=work{
@@ -121,15 +153,89 @@ class ControlModel(app: Application): AndroidViewModel(app) {
     }
     fun dispatch(workflow:Workflow,inputs:Map<String,String>)=work{withContext(Dispatchers.IO){api!!.dispatch(selected,workflow,inputs)};message="Workflow-Start angefordert. GitHub legt den Lauf an; bitte aktualisieren.";load()}
     fun failure(build:Build)=work{detail=withContext(Dispatchers.IO){api!!.failure(selected,build)}}
+    fun buildJobs(build: Build) = work { detail = withContext(Dispatchers.IO) { api!!.buildJobs(selected, build) } }
+    fun cancel(build: Build) = work {
+        require(snapshot?.builds?.any { it.id == build.id && it.status != "completed" } == true)
+        withContext(Dispatchers.IO) { api!!.cancel(selected, build) }
+        message = "Abbruch bei GitHub angefordert."
+        load()
+    }
     fun download(asset:PackageAsset)=work{
         val folder=File(getApplication<Application>().cacheDir,"apks")
         downloads=withContext(Dispatchers.IO){api!!.download(asset,folder)}
         message="APK heruntergeladen. Datei auswählen und Installation bestätigen."
     }
-    fun updates()=work{
-        val result=withContext(Dispatchers.IO){api!!.snapshot(Project("mellowtraxer/MTXBuildControl","main","MTX Build Control"))}
-        val current=BuildConfig.VERSION_CODE
-        updateAssets=result.assets.filter{!it.zip && it.version.removePrefix("build-").toIntOrNull()?.let{v->v>current} == true}
-        message=if(updateAssets.isEmpty())"Keine neuere veröffentlichte Version gefunden. Installiert: ${BuildConfig.VERSION_NAME} ($current)." else "Neue Version verfügbar. Download wählen."
+    fun onForeground() {
+        checkUpdates()
+        if (connected && lastDiscovery?.let { SystemClock.elapsedRealtime() - it >= 300_000 } != false) {
+            refresh()
+        }
+    }
+
+    fun checkUpdates(manual: Boolean = false) {
+        if (updateChecking || updateProgress != null || updateFile != null) return
+        val now = SystemClock.elapsedRealtime()
+        if (!manual && lastUpdateCheck?.let { now - it < 300_000 } == true) return
+        lastUpdateCheck = now
+        updateChecking = true
+        viewModelScope.launch {
+            try {
+                val update = withContext(Dispatchers.IO) { publicReleases.ownUpdate(BuildConfig.VERSION_CODE) }
+                if (update != null && (manual || !store.updateSnoozed(update.versionCode))) updatePrompt = update
+                else if (manual) updateError = "Keine neuere freigegebene Version gefunden."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (manual) updateError = e.message ?: "Update-Prüfung fehlgeschlagen."
+            } finally {
+                updateChecking = false
+            }
+        }
+    }
+
+    fun snoozeUpdate() {
+        updatePrompt?.let { store.snoozeUpdate(it.versionCode) }
+        updatePrompt = null
+    }
+    fun clearUpdateError() { updateError = null }
+    fun onInstallerOpened(file: File) { if (updateFile == file) updateFile = null }
+
+    fun downloadUpdate(update: AppUpdate) {
+        if (updateProgress != null) return
+        updatePrompt = null
+        updateProgress = 0f
+        viewModelScope.launch {
+            try {
+                val app = getApplication<Application>()
+                val file = withContext(Dispatchers.IO) {
+                    val downloaded = publicReleases.download(update.asset, File(app.cacheDir, "apks")) { done, total ->
+                        ensureActive()
+                        updateProgress = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else -1f
+                    }.single()
+                    try {
+                        val pm = app.packageManager
+                        val flags = PackageManager.GET_SIGNING_CERTIFICATES
+                        val next = pm.getPackageArchiveInfo(downloaded.path, flags) ?: error("Ungültige Update-APK.")
+                        require(next.packageName == app.packageName && next.longVersionCode == update.versionCode.toLong() &&
+                            next.longVersionCode > BuildConfig.VERSION_CODE) { "Paket oder Version des Updates stimmt nicht überein." }
+                        val expected = pm.getPackageInfo(app.packageName, flags).signingInfo?.apkContentsSigners
+                        val actual = next.signingInfo?.apkContentsSigners
+                        require(!expected.isNullOrEmpty() && !actual.isNullOrEmpty() &&
+                            expected.toSet() == actual.toSet()) { "Update hat eine andere Signatur." }
+                        downloaded
+                    } catch (e: Exception) {
+                        downloaded.delete()
+                        throw e
+                    }
+                }
+                updateFile = file
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                updateError = e.message ?: "Download fehlgeschlagen. Bitte erneut versuchen."
+            } finally {
+                updateProgress = null
+            }
+        }
     }
 }

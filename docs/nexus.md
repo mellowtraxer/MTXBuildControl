@@ -1,9 +1,9 @@
 # MTX Nexus development branch
 
 The validation workflow exercises the routing policy and builds a test APK on
-GitHub-hosted infrastructure. The test APK uses the ephemeral CI debug key.
-Use it on a clean test device or emulator. Production builds continue through
-the existing signed Android workflow.
+GitHub-hosted infrastructure. The validation APK uses the existing signing
+identity and versionCode 1, so it is intended for a clean test device or
+emulator. Production builds continue through the existing signed workflow.
 
 ## Routing contract
 

@@ -30,6 +30,13 @@ jobs:
     needs: routing
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      BUILD_NUMBER: "1"
+      MTX_SIGNING_FILE: ${{ github.workspace }}/.signing/mtx-debug.jks
+      MTX_EXPECTED_SIGNER_SHA256: a0100a3fdf1d503116c0f880d5a723bc648aa575953cd62dfa8cee929f301171
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,15 +45,57 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
-      - name: Unit tests, lint and development APK
+      - name: Restore persistent app signing identity
         env:
-          BUILD_NUMBER: ${{ github.run_number }}
-        run: gradle --no-daemon --max-workers=2 :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+          KEYSTORE_BASE64: ${{ secrets.MTX_BUILD_CONTROL_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$KEYSTORE_BASE64" || { echo 'Missing MTX_BUILD_CONTROL_KEYSTORE_BASE64 signing secret'; exit 1; }
+          mkdir -p "$(dirname "$MTX_SIGNING_FILE")"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$MTX_SIGNING_FILE"
+          keytool -list -keystore "$MTX_SIGNING_FILE" -storepass android -alias androiddebugkey >/dev/null
+      - name: Unit tests, lint and APK
+        env:
+          BUILD_NUMBER: "1"
+        run: gradle --no-daemon --max-workers=2 :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Verify built APK identity and signature
+        run: bash scripts/verify-apk.sh
+      - name: Verify emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Real Android startup test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: gradle --no-daemon --max-workers=2 :app:connectedDebugAndroidTest
+      - name: Verify tested APK identity and signature
+        run: bash scripts/verify-apk.sh
+      - name: Stage tested APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk MTXBuildControl.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: MTX-Nexus-development-test-only
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: MTXBuildControl-Nexus-tested
+          path: MTXBuildControl.apk
           if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports-${{ github.run_number }}
+          path: |
+            app/build/reports/
+            app/build/outputs/androidTest-results/
+      - name: Remove temporary signing material
+        if: always()
+        run: rm -f -- "$MTX_SIGNING_FILE"

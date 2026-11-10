@@ -35,10 +35,10 @@ class Store(context: Context) {
     fun projects(): List<Project> {
         val a=JSONArray(prefs.getString("projects",null) ?: "[]")
         val defaults = listOf(Project("mellowtraxer/RiccisTidalPlaylistCreator","feature/mtx-studio-core","MTX Studio"),Project("mellowtraxer/GarminSleepTasker","sleepsync-compose-v2","SleepSync"),Project("mellowtraxer/MarioChess3D","main","MarioChess3D"))
-        val saved = (0 until a.length()).map { a.getJSONObject(it).let{Project(it.getString("repo"),it.getString("branch"),it.getString("name"))} }
+        val saved = (0 until a.length()).map { a.getJSONObject(it).let{Project(it.getString("repo"),it.getString("branch"),it.getString("name"),it.optLong("id").takeIf { id -> id > 0 },it.optBoolean("archived"))} }
         return saved + defaults.filter { default -> saved.none { it.repo.equals(default.repo, ignoreCase=true) } }
     }
-    fun saveProjects(projects: List<Project>) { val a=JSONArray(); projects.forEach{a.put(JSONObject().put("repo",it.repo).put("branch",it.branch).put("name",it.name))};prefs.edit().putString("projects",a.toString()).apply() }
+    fun saveProjects(projects: List<Project>) { val a=JSONArray(); projects.forEach{a.put(JSONObject().put("repo",it.repo).put("branch",it.branch).put("name",it.name).put("id",it.id).put("archived",it.archived))};prefs.edit().putString("projects",a.toString()).apply() }
     // The repository and branch form one independent runner setting.
     fun runnerMode(project: Project): String? = prefs.getString(runnerKey(project),null)?.takeIf{it=="pc"||it=="github"}
     fun saveRunnerMode(project: Project, mode: String) {
@@ -46,6 +46,15 @@ class Store(context: Context) {
         check(prefs.edit().putString(runnerKey(project),mode).commit()) { "Auswahl konnte auf diesem Gerät nicht gespeichert werden." }
     }
     private fun runnerKey(project: Project) = "runner:"+JSONArray(listOf(project.repo.lowercase(),project.branch)).toString()
+    fun updateSnoozed(version: Int): Boolean {
+        val remaining = prefs.getLong("snooze-update:$version", 0) - System.currentTimeMillis()
+        return remaining in 1..UPDATE_SNOOZE_MS
+    }
+    fun snoozeUpdate(version: Int) {
+        prefs.edit().putLong("snooze-update:$version", System.currentTimeMillis() + UPDATE_SNOOZE_MS).apply()
+    }
+    private companion object { const val UPDATE_SNOOZE_MS = 24 * 60 * 60 * 1000L }
+
     var selected: String
         get()=prefs.getString("selected","").orEmpty()
         set(value){prefs.edit().putString("selected",value).apply()}

@@ -50,9 +50,10 @@ class GitHub(private val token: String, private val base: String = "https://api.
         val accessible = list("user/repos?affiliation=owner&sort=updated", "items")
         val public = list("users/${enc(owner)}/repos?type=owner&sort=updated", "items")
         return (accessible + public)
-            .distinctBy { it.getString("full_name").lowercase() }
-            .filter { it.getString("full_name").substringBefore('/').equals(owner, true) && !it.optBoolean("archived") }
-            .map { Project(it.getString("full_name"), it.getString("default_branch"), it.getString("name")) }
+            .distinctBy { it.getLong("id") }
+            .filter { it.getString("full_name").substringBefore('/').equals(owner, true) }
+            .map { Project(it.getString("full_name"), it.getString("default_branch"), it.getString("name"),
+                it.getLong("id"), it.optBoolean("archived")) }
     }
     fun defaultBranch(repo: String) = json("repos/$repo").getString("default_branch")
     fun branches(repo: String) = list("repos/$repo/branches", "items").map { it.getString("name") }
@@ -87,7 +88,7 @@ class GitHub(private val token: String, private val base: String = "https://api.
             if (WorkflowReader.wired(texts)) raw else { notes += "Runner-Datei vorhanden, aber kein kompatibler Auswahl-Workflow erkannt."; null }
         } catch(e: ApiException) { if (e.status != 404) notes += e.message.orEmpty(); null }
         val runnerResult = runCatching { runners(p) }
-        val builds = runCatching { list("repos/${p.repo}/actions/runs?branch=${enc(p.branch)}&exclude_pull_requests=true", "workflow_runs", 30).take(30).map { o -> Build(o.getLong("id"),o.getLong("run_number"),o.optString("name"),o.getString("status"),o.optString("conclusion"),o.optString("head_branch"),o.getString("head_sha"),o.getString("html_url"),o.optString("run_started_at"),o.getString("updated_at")) } }
+        val builds = runCatching { list("repos/${p.repo}/actions/runs?branch=${enc(p.branch)}&exclude_pull_requests=true", "workflow_runs", 30).take(30).map { o -> Build(o.getLong("id"),o.getLong("run_number"),o.optString("name"),o.getString("status"),o.optString("conclusion"),o.optString("head_branch"),o.getString("head_sha"),o.getString("html_url"),o.optString("run_started_at"),o.getString("updated_at"), o.optInt("run_attempt", 1)) } }
             .onFailure { if(it is ApiException&&it.status==401)throw it; notes += "Build-Übersicht gerade nicht verfügbar: ${it.message}" }.getOrDefault(emptyList())
         val assets = mutableListOf<PackageAsset>()
         runCatching {
@@ -148,14 +149,55 @@ class GitHub(private val token: String, private val base: String = "https://api.
             "${j.getString("name")}: $failed\n$annotation"
         }.ifBlank { "Keine Fehlerannotation verfügbar. Vollständige Logs über den GitHub-Link öffnen." }
     }
-    fun download(asset: PackageAsset, folder: File): List<File> {
+    fun buildJobs(p: Project, build: Build): String =
+        list("repos/${p.repo}/actions/runs/${build.id}/attempts/${build.attempt}/jobs", "jobs")
+            .joinToString("\n") { job ->
+                val runner = job.optString("runner_name", "").ifBlank { "Runner nicht gemeldet" }
+                val status = if (job.isNull("conclusion")) job.optString("status") else job.optString("conclusion")
+                "${job.getString("name")} · $runner · $status"
+            }.ifBlank { "GitHub meldet noch keine Jobs." }
+
+    fun cancel(p: Project, build: Build) {
+        json("repos/${p.repo}/actions/runs/${build.id}/cancel", "POST")
+    }
+
+    fun ownUpdate(installedCode: Int): AppUpdate? {
+        val repo = "mellowtraxer/MTXBuildControl"
+        return list("repos/$repo/releases", "items", 20).asSequence().mapNotNull { release ->
+            if (release.optBoolean("draft") || release.optBoolean("prerelease")) return@mapNotNull null
+            val tag = release.optString("tag_name")
+            val version = Regex("build-([1-9][0-9]*)").matchEntire(tag)
+                ?.groupValues?.get(1)?.toIntOrNull() ?: return@mapNotNull null
+            if (version <= installedCode) return@mapNotNull null
+            val assets = release.optJSONArray("assets") ?: return@mapNotNull null
+            val apk = (0 until assets.length()).map { assets.getJSONObject(it) }.singleOrNull {
+                it.optString("name") == "MTXBuildControl.apk" &&
+                    it.optString("state") == "uploaded" &&
+                    it.optLong("size") in 1..MAX_APK_SIZE &&
+                    it.optString("digest").matches(Regex("sha256:[0-9a-f]{64}"))
+            } ?: return@mapNotNull null
+            AppUpdate(PackageAsset("MTXBuildControl.apk", "repos/$repo/releases/assets/${apk.getLong("id")}",
+                false, tag, apk.getString("digest")), version, release.optString("body", "").take(4000))
+        }.maxByOrNull { it.versionCode }
+    }
+
+    fun download(asset: PackageAsset, folder: File, progress: ((Long, Long) -> Unit)? = null): List<File> {
         folder.mkdirs()
+        require(folder.usableSpace > 0) { "Kein Speicher für den Download verfügbar." }
         val destination = File(folder,"download-${System.nanoTime()}")
         try {
             client.newCall(request(asset.apiPath,binary=true)).execute().use { r ->
                 if (!r.isSuccessful) throw ApiException(r.code,"APK-Download fehlgeschlagen (HTTP ${r.code}).")
-                require((r.body?.contentLength() ?: 0) <= 300L*1024*1024) { "Download zu groß." }
-                r.body!!.byteStream().use { source -> destination.outputStream().use { out -> copyBounded(source,out) } }
+                val body = r.body ?: error("Der Download ist leer.")
+                val length = body.contentLength()
+                require(length <= MAX_APK_SIZE) { "Download zu groß." }
+                require(length <= folder.usableSpace) { "Nicht genügend Speicherplatz für die APK." }
+                body.byteStream().use { source ->
+                    destination.outputStream().use { out ->
+                        val copied = copyBounded(source, out) { bytes -> progress?.invoke(bytes, length) }
+                        require(copied > 0 && (length < 0 || copied == length)) { "Download unvollständig." }
+                    }
+                }
             }
             if (!asset.zip) {
                 if (asset.digest.startsWith("sha256:")) {
@@ -187,9 +229,9 @@ class GitHub(private val token: String, private val base: String = "https://api.
             } catch(e:Exception) { out.forEach { it.delete() }; throw e }
         } finally { destination.delete() }
     }
-    private fun copyBounded(source: java.io.InputStream, out: java.io.OutputStream, max: Long=300L*1024*1024): Long {
+    private fun copyBounded(source: java.io.InputStream, out: java.io.OutputStream, max: Long = MAX_APK_SIZE, progress: (Long) -> Unit = {}): Long {
         var total=0L; val buf=ByteArray(65536)
-        while(true){val n=source.read(buf);if(n<0)break;total+=n;require(total<=max){"Download zu groß."};out.write(buf,0,n)};return total
+        while(true){val n=source.read(buf);if(n<0)break;total+=n;require(total<=max){"Download zu groß."};out.write(buf,0,n);progress(total)};return total
     }
-    companion object { fun enc(v: String): String = URLEncoder.encode(v,"UTF-8").replace("+","%20") }
+    companion object { private const val MAX_APK_SIZE = 300L * 1024 * 1024; fun enc(v: String): String = URLEncoder.encode(v,"UTF-8").replace("+","%20") }
 }
