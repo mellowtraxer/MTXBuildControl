@@ -43,12 +43,13 @@ class RunnerTests(unittest.TestCase):
 
 
 class Worker:
-    def __init__(self, states, fail_dispatch=False, job_status="in_progress"):
+    def __init__(self, states, fail_dispatch=False, job_status="in_progress", artifacts=True):
         self.states = iter(states)
         self.posts = []
         self.fail_dispatch = fail_dispatch
         self.now = 0
         self.job_status = job_status
+        self.artifacts = artifacts
 
     def request(self, path, payload=None):
         if payload is not None:
@@ -60,14 +61,18 @@ class Worker:
         if path.endswith("cancel"):
             return None
         if path.endswith("/jobs"):
-            return {"jobs": [{"status": self.job_status, "runner_name": "RICCI"}]}
+            return {"jobs": [{"status": self.job_status, "runner_name": "RICCI",
+                              "conclusion": "skipped" if self.job_status == "skipped" else "success"}]}
         return next(self.states)
+
+    def pages(self, path, field=None):
+        return iter([{"name": "build-apk", "expired": False, "size_in_bytes": 100}] if self.artifacts else [])
 
     def sleep(self, seconds):
         self.now += seconds
 
     def run(self):
-        return supervise(self, "owner/private", "worker.yml", "main", "a"*40, 10, 15,
+        return supervise(self, "owner/private", "worker.yml", "main", "a"*40, "build-apk", 10, 15,
                          clock=lambda: self.now, sleep=self.sleep)
 
 
@@ -78,6 +83,13 @@ class SupervisionTests(unittest.TestCase):
         self.assertEqual(worker.run(), ("pc", "worker-succeeded", 42))
         self.assertEqual(len(worker.posts), 1)
         self.assertEqual(worker.posts[0][1]["inputs"]["source_sha"], "a"*40)
+
+    def test_success_requires_the_real_pc_job_and_artifact(self):
+        success = {"status": "completed", "conclusion": "success"}
+        self.assertEqual(Worker([success], job_status="skipped").run(),
+                         ("cloud", "worker-job-not-verified", 42))
+        self.assertEqual(Worker([success], artifacts=False).run(),
+                         ("cloud", "worker-artifact-not-verified", 42))
 
     def test_queue_timeout_and_offline_mid_build(self):
         for status, reason, count in (("queued", "worker-queue-timeout", 3),

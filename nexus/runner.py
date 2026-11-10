@@ -4,6 +4,7 @@ import argparse
 import os
 import re
 import time
+from urllib.parse import urlencode
 
 from nexus.github import GitHub, GitHubError
 
@@ -36,7 +37,7 @@ def select_runner(repository, event, trusted_ref, preference, capability, runner
     return "pc", "runner-available"
 
 
-def supervise(api, repo, worker, ref, sha, queue_seconds, execution_seconds,
+def supervise(api, repo, worker, ref, sha, artifact_name, queue_seconds, execution_seconds,
               poll_seconds=5, clock=time.monotonic, sleep=time.sleep):
     """A dispatched worker has no signing or publication authority.
 
@@ -68,9 +69,19 @@ def supervise(api, repo, worker, ref, sha, queue_seconds, execution_seconds,
             run = api.request(run_path)
             now = clock()
             if run["status"] == "completed":
-                if run["conclusion"] == "success":
-                    return "pc", "worker-succeeded", run_id
-                return "cloud", "worker-failed", run_id
+                if run["conclusion"] != "success":
+                    return "cloud", "worker-failed", run_id
+                jobs = api.request(run_path + "/jobs")["jobs"]
+                if not any(job.get("conclusion") == "success" and job.get("runner_name") == "RICCI"
+                           for job in jobs):
+                    return "cloud", "worker-job-not-verified", run_id
+                artifacts = list(api.pages(run_path + "/artifacts?" + urlencode({"name": artifact_name}),
+                                           "artifacts"))
+                matches = [artifact for artifact in artifacts if artifact["name"] == artifact_name
+                           and not artifact["expired"] and artifact["size_in_bytes"] > 0]
+                if len(matches) != 1:
+                    return "cloud", "worker-artifact-not-verified", run_id
+                return "pc", "worker-succeeded", run_id
             if execution_deadline is None and run["status"] == "in_progress":
                 jobs = api.request(run_path + "/jobs")["jobs"]
                 # A run can be "in_progress" while its PC job is still queued.
@@ -116,6 +127,7 @@ def main():
     parser.add_argument("--preference", default="auto", choices=("auto", "pc", "github"))
     parser.add_argument("--trusted-ref", required=True)
     parser.add_argument("--worker", required=True)
+    parser.add_argument("--worker-artifact", required=True)
     args = parser.parse_args()
     repo = os.environ["GITHUB_REPOSITORY"]
     api = GitHub(os.environ["GH_TOKEN"])
@@ -128,7 +140,7 @@ def main():
     run_id = None
     if target == "pc":
         target, reason, run_id = supervise(api, repo, args.worker, args.trusted_ref,
-                                            os.environ["GITHUB_SHA"], 90, 1500)
+                                            os.environ["GITHUB_SHA"], args.worker_artifact, 90, 1500)
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         print(f"target={target}\nreason={reason}\nworker_run_id={run_id or ''}", file=out)
     print(f"MTX Nexus route: {target} ({reason})")

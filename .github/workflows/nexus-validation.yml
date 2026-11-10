@@ -21,7 +21,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: >-
           python3 -m nexus.runner --trusted-ref feature/mtx-nexus
-          --capability android-build --worker nexus-pc-worker.yml
+          --capability android-build --worker nexus-pc-worker.yml --worker-artifact unused-in-public
       - name: Check cloud selection
         env:
           TARGET: ${{ steps.route.outputs.target }}
