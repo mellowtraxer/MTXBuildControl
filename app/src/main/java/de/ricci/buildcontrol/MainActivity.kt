@@ -104,14 +104,22 @@ private val Purple=Color(0xFFB998FF)
                 if(tab==0){
                     val live=model.snapshot
                     Glass("WO SOLL ${model.selected.name.uppercase()} BAUEN?"){
-                        RunnerChoice(mode=live?.mode ?: model.savedModes[model.selected],verified=live?.mode!=null,
-                            enabled=!model.busy&&(live?.mode!=null||model.savedModes[model.selected]!=null),onChoose={target->
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress);model.switch(target)
-                            })
-                        Text("Antippen speichert die Auswahl für dieses Projekt. Laufende Builds bleiben erhalten.",fontSize=12.sp)
-                        if(live!=null&&live.mode==null)Text("Die Umschaltung ist für dieses Projekt noch nicht eingerichtet.")
-                        if(live?.mode==null)TextButton(onClick={model.refresh()},enabled=!model.busy){Text("Erneut prüfen")}
-                        if(live!=null)Text(RunnerStatus.message(live.runners,live.runnerError),fontSize=12.sp)
+                        val automatic = live?.automaticRouting == true
+                        if (automatic && live?.mode == null) {
+                            Text("Automatisch · RICCI zuerst", fontSize=20.sp, fontWeight=FontWeight.Bold)
+                            Text("GitHub übernimmt, wenn der PC für diesen Build nicht verfügbar ist.", fontSize=12.sp)
+                        } else {
+                            RunnerChoice(mode=live?.mode ?: model.savedModes[model.selected],verified=live?.mode!=null,
+                                enabled=!model.busy&&(live?.mode!=null||model.savedModes[model.selected]!=null),
+                                automatic=automatic,onChoose={target->
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress);model.switch(target)
+                                })
+                            Text(if (automatic) "Automatisch bevorzugt RICCI und nutzt GitHub als Ausweichrunner."
+                                else "Antippen speichert die Auswahl für dieses Projekt. Laufende Builds bleiben erhalten.",fontSize=12.sp)
+                            if(live!=null&&live.mode==null)Text("Die Umschaltung ist für dieses Projekt noch nicht eingerichtet.")
+                            if(live?.mode==null)TextButton(onClick={model.refresh()},enabled=!model.busy){Text("Erneut prüfen")}
+                        }
+                        if(live!=null)Text(RunnerStatus.message(live.runners,live.runnerError,automatic),fontSize=12.sp)
                         if(model.message.isNotBlank())Text(model.message,fontWeight=FontWeight.Bold)
                     }
                     Glass("DEINE PROJEKTE"){
@@ -174,6 +182,7 @@ private val Purple=Color(0xFFB998FF)
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     Text("MTX Build Control 1.0.${update.versionCode} · Build ${update.versionCode}")
                     Text("Installiert: ${BuildConfig.VERSION_NAME}")
+                    Text("Stable · ${android.text.format.Formatter.formatFileSize(context, update.size)}")
                     if (showReleaseNotes) {
                         Text(update.notes.ifBlank { "GitHub meldet keine Änderungen zu diesem Release." })
                     } else {

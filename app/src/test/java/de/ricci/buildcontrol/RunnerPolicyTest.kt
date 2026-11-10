@@ -19,6 +19,22 @@ class RunnerPolicyTest {
     @Test fun quotedAndUnquotedYamlEventsAreRead(){listOf("on", "'on'").forEach{key->val input=WorkflowReader.inputs("$key:\n  workflow_dispatch:\n    inputs:\n      mode:\n        type: choice\n        options: [build, promote]\n        default: build\n")!!;assertEquals("build",input["mode"]!!.default);assertEquals(listOf("build","promote"),input["mode"]!!.options)}}
     @Test fun workflowsWithoutDispatchAreNotStartable(){assertNull(WorkflowReader.inputs("on: [push]\njobs: {}"))}
     @Test fun noArbitraryWorkflowRewrite(){assertFalse(WorkflowReader.wired(listOf("on: push\njobs:\n  build:\n    runs-on: windows-2022\n")))}
+    @Test fun nexusRoutingCanUseAnExistingSwitchOrAReadOnlyDefault() {
+        val automatic = """
+            on: [push]
+            jobs:
+              select-runner:
+                runs-on: ubuntu-latest
+                outputs:
+                  target: ${'$'}{{ steps.select.outputs.target }}
+                steps:
+                  - run: python3 -m nexus.runner --trusted-ref main
+        """.trimIndent()
+        assertTrue(WorkflowReader.automaticRouting(automatic))
+        assertFalse(WorkflowReader.wired(listOf(automatic)))
+        assertTrue(WorkflowReader.wired(listOf(automatic.replace(
+            "python3 -m nexus.runner", "cat .github/mtx-runner.json; python3 -m nexus.runner"))))
+    }
     private val workflow="""
         on: [push]
         jobs:

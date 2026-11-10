@@ -22,6 +22,7 @@ class OtaReleaseTest {
             assertNotNull(update)
             assertEquals(21, update!!.versionCode)
             assertEquals("Changelog", update.notes)
+            assertEquals(120L, update.size)
             assertNull(server.takeRequest().getHeader("Authorization"))
         }
     }

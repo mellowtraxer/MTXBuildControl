@@ -135,6 +135,6 @@ jobs:
             echo "::error::Release version collision or a newer release exists."
             exit 1
           fi
-          gh release create "$tag" MTXBuildControl.apk --target "$GITHUB_SHA" --latest \
+          gh release create "$tag" MTXBuildControl.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest \
             --title "MTX Build Control 1.0.$GITHUB_RUN_NUMBER" \
             --notes "Nexus Control Center. Stable OTA checks on startup and foreground, live project and job information, and build cancellation. Validated signed upgrade from the preceding public APK with retained application data. Source: $GITHUB_SHA."

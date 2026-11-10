@@ -13,13 +13,14 @@ import androidx.compose.ui.unit.sp
 
 /** A tap is the explicit instruction to save this project's runner choice. */
 @Composable
-fun RunnerChoice(mode:String?,verified:Boolean,enabled:Boolean,onChoose:(String)->Unit){
+fun RunnerChoice(mode:String?,verified:Boolean,enabled:Boolean,automatic:Boolean = false,onChoose:(String)->Unit){
+    val pcLabel = if (automatic) "Automatisch" else "PC"
     Text(when {
         mode==null -> "Bitte kurz prüfen lassen"
-        !verified -> "Zuletzt gespeichert: ${if(mode=="pc")"PC" else "GitHub"} · noch nicht geprüft"
-        else -> "Gespeichert: ${if(mode=="pc")"PC" else "GitHub"}"
+        !verified -> "Zuletzt gespeichert: ${if(mode=="pc")pcLabel else "GitHub"} · noch nicht geprüft"
+        else -> "Gespeichert: ${if(mode=="pc")pcLabel else "GitHub"}"
     },fontSize=20.sp,fontWeight=FontWeight.Bold)
-    listOf("pc" to "PC","github" to "GitHub").forEach{(target,label)->
+    listOf("pc" to pcLabel,"github" to "GitHub").forEach{(target,label)->
         val active=verified&&mode==target
         Button(onClick={onChoose(target)},enabled=enabled&&!active,
             modifier=Modifier.fillMaxWidth().height(68.dp).semantics{selected=active},

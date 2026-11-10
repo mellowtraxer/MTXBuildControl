@@ -15,10 +15,10 @@ data class Input(val required: Boolean, val default: String, val options: List<S
 data class Build(val id: Long, val number: Long, val name: String, val status: String, val conclusion: String, val branch: String, val sha: String, val url: String, val started: String, val updated: String, val attempt: Int = 1) {
     val label get() = when { status == "queued" || status == "waiting" || status == "pending" -> "Wartend"; status != "completed" -> "Läuft"; conclusion == "success" -> "Erfolgreich"; conclusion == "failure" -> "Fehlgeschlagen"; else -> conclusion }
 }
-data class AppUpdate(val asset: PackageAsset, val versionCode: Int, val notes: String)
+data class AppUpdate(val asset: PackageAsset, val versionCode: Int, val notes: String, val size: Long)
 
 data class PackageAsset(val title: String, val apiPath: String, val zip: Boolean, val version: String, val digest: String = "")
-data class Snapshot(val project: Project, val mode: String?, val workflows: List<Workflow>, val runners: List<Runner>, val runnerError: String?, val builds: List<Build>, val assets: List<PackageAsset>, val notes: List<String>)
+data class Snapshot(val project: Project, val mode: String?, val workflows: List<Workflow>, val runners: List<Runner>, val runnerError: String?, val builds: List<Build>, val assets: List<PackageAsset>, val notes: List<String>, val automaticRouting: Boolean = false)
 
 object RunnerPolicy {
     const val PATH = ".github/mtx-runner.json"
@@ -51,22 +51,35 @@ object WorkflowReader {
             key.toString() to Input(m["required"] == true, m["default"]?.toString() ?: "", (m["options"] as? List<*>)?.map { it.toString() } ?: emptyList(), m["type"]?.toString() ?: "string")
         }
     }
+    fun automaticRouting(text: String): Boolean {
+        val jobs = read(text)["jobs"] as? Map<*, *> ?: return false
+        return jobs.values.any { value ->
+            val job = value as? Map<*, *> ?: return@any false
+            val outputs = job["outputs"] as? Map<*, *> ?: return@any false
+            outputs["target"] != null && (job["steps"] as? List<*>)?.any { step ->
+                (step as? Map<*, *>)?.get("run")?.toString()?.contains("python3 -m nexus.runner") == true
+            } == true
+        }
+    }
+
     fun wired(texts: List<String>): Boolean = texts.any { text ->
         val jobs = read(text)["jobs"] as? Map<*, *> ?: return@any false
         // Recognize the existing MTX JSON selector protocol, not an arbitrary runs-on replacement.
-        text.contains(".github/mtx-runner.json") && jobs.values.any { v ->
+        text.contains(".github/mtx-runner.json") && (automaticRouting(text) || jobs.values.any { v ->
             val job = v as? Map<*, *> ?: return@any false
             job["runs-on"]?.toString()?.contains("fromJSON(needs.select-runner.outputs.labels)") == true
-        }
+        })
     }
 }
 
 /** Failure to read the administration-only runner list is not an offline signal. */
 object RunnerStatus {
-    fun message(runners: List<Runner>, error: String?): String {
-        if(error!=null)return "PC-Status gerade nicht abrufbar. Du kannst die Auswahl trotzdem speichern."
+    fun message(runners: List<Runner>, error: String?, automatic: Boolean = false): String {
+        if(error!=null)return if (automatic) "PC-Status in der App nicht abrufbar. Der Workflow prüft ihn beim Start." else
+            "PC-Status gerade nicht abrufbar. Du kannst die Auswahl trotzdem speichern."
         val ricci=runners.filter{it.name=="RICCI"}
-        if(ricci.isEmpty())return "Für dieses Projekt ist kein PC bei GitHub gemeldet. PC-Builds warten, bis RICCI verbunden ist."
+        if(ricci.isEmpty())return if (automatic) "Kein RICCI gemeldet. Automatische Builds verwenden GitHub." else
+            "Für dieses Projekt ist kein PC bei GitHub gemeldet. PC-Builds warten, bis RICCI verbunden ist."
         if(ricci.any{it.status.equals("online",true)})return if(ricci.any{it.busy})"PC ist online und arbeitet. Laufende Builds laufen weiter." else "PC ist online."
         if(ricci.all{it.status.equals("offline",true)})return "PC ist bei GitHub offline gemeldet. Du kannst PC trotzdem speichern oder GitHub wählen."
         return "PC-Status gerade unbekannt. Du kannst die Auswahl trotzdem speichern."

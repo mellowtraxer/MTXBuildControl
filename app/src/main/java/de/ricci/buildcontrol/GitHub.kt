@@ -77,9 +77,11 @@ class GitHub(private val token: String, private val base: String = "https://api.
         val texts = mutableListOf<String>()
         val workflows = files.mapNotNull { o ->
             try {
-                val path = o.getString("path"); val text = file(p, path).text; texts += text
+                val path = o.getString("path"); val text = file(p, path).text
                 val inputs = WorkflowReader.inputs(text)
-                Workflow(registered.firstOrNull { it.optString("path") == path }?.optLong("id") ?: 0, WorkflowReader.read(text)["name"]?.toString() ?: o.getString("name"), path, inputs ?: emptyMap()).let { it to (inputs != null) }
+                val name = WorkflowReader.read(text)["name"]?.toString() ?: o.getString("name")
+                texts += text
+                Workflow(registered.firstOrNull { it.optString("path") == path }?.optLong("id") ?: 0, name, path, inputs ?: emptyMap()).let { it to (inputs != null) }
             } catch(e: Exception) { notes += "Workflow ${o.optString("name")}: ${e.message}"; null }
         }
         dispatchable = workflows.filter { it.second }.map { it.first.path }.toSet()
@@ -105,7 +107,8 @@ class GitHub(private val token: String, private val base: String = "https://api.
                 assets += PackageAsset(it.getString("name"),"repos/${p.repo}/actions/artifacts/${it.getLong("id")}/zip",true,"Build #${build.number} · ${build.sha.take(7)}")
             }
         }.onFailure { notes += "Artefakte #${build.number}: ${it.message}" } }
-        return Snapshot(p,mode,workflows.map { it.first },runnerResult.getOrDefault(emptyList()),runnerResult.exceptionOrNull()?.message,builds,assets,notes)
+        return Snapshot(p,mode,workflows.map { it.first },runnerResult.getOrDefault(emptyList()),runnerResult.exceptionOrNull()?.message,
+            builds,assets,notes,texts.any(WorkflowReader::automaticRouting))
     }
     var dispatchable: Set<String> = emptySet(); private set
     fun switch(p: Project, target: String): String {
@@ -177,7 +180,7 @@ class GitHub(private val token: String, private val base: String = "https://api.
                     it.optString("digest").matches(Regex("sha256:[0-9a-f]{64}"))
             } ?: return@mapNotNull null
             AppUpdate(PackageAsset("MTXBuildControl.apk", "repos/$repo/releases/assets/${apk.getLong("id")}",
-                false, tag, apk.getString("digest")), version, release.optString("body", "").take(4000))
+                false, tag, apk.getString("digest")), version, release.optString("body", "").take(4000), apk.getLong("size"))
         }.maxByOrNull { it.versionCode }
     }
 
