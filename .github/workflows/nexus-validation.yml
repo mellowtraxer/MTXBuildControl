@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      BUILD_NUMBER: "2"
+      BUILD_NUMBER: "18"
       MTX_SIGNING_FILE: ${{ github.workspace }}/.signing/mtx-debug.jks
       MTX_EXPECTED_SIGNER_SHA256: a0100a3fdf1d503116c0f880d5a723bc648aa575953cd62dfa8cee929f301171
     permissions:
@@ -60,16 +60,18 @@ jobs:
           mkdir -p "$(dirname "$MTX_SIGNING_FILE")"
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$MTX_SIGNING_FILE"
           keytool -list -keystore "$MTX_SIGNING_FILE" -storepass android -alias androiddebugkey >/dev/null
-      - name: Build and verify the previous test APK
+      - name: Download and verify the currently published APK
         env:
-          BUILD_NUMBER: "1"
+          BUILD_NUMBER: "17"
+          GH_TOKEN: ${{ github.token }}
         run: |
-          gradle --no-daemon --max-workers=2 :app:assembleDebug
-          bash scripts/verify-apk.sh
-          cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/nexus-previous.apk"
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          test "$latest" = build-17 || { echo "Published baseline changed: $latest"; exit 1; }
+          gh release download build-17 --repo "$GITHUB_REPOSITORY" --pattern MTXBuildControl.apk \
+            --output "$RUNNER_TEMP/nexus-previous.apk"
+          echo "10f0283066342410222c73cb265366f4800f7e44ea6453e6f880cb20662cf8ab  $RUNNER_TEMP/nexus-previous.apk" | sha256sum --check
+          bash scripts/verify-apk.sh "$RUNNER_TEMP/nexus-previous.apk"
       - name: Unit tests, lint and APK
-        env:
-          BUILD_NUMBER: "2"
         run: gradle --no-daemon --max-workers=2 :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
       - name: Verify built APK identity and signature
         run: bash scripts/verify-apk.sh
@@ -92,7 +94,8 @@ jobs:
         run: cp app/build/outputs/apk/debug/app-debug.apk MTXBuildControl.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: MTXBuildControl-Nexus-tested
+          name: MTXBuildControl-Nexus-tested-${{ env.BUILD_NUMBER }}
+          retention-days: 14
           path: MTXBuildControl.apk
           if-no-files-found: error
 
