@@ -1,0 +1,48 @@
+name: Nexus cloud fallback check
+on:
+  push:
+    branches: [ci/nexus-runner-hardening]
+    paths: [.github/workflows/nexus-fallback-check.yml, nexus/**]
+permissions:
+  contents: read
+jobs:
+  route:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      target: ${{ steps.check.outputs.target }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run Nexus policy and supervision tests
+        run: python3 -m unittest discover -s nexus/tests -v
+      - name: Simulate an offline registered Windows runner
+        id: check
+        run: |
+          python3 - <<'PY'
+          import os
+          from nexus.runner import BASE_LABELS, select_runner
+
+          runner = {
+              "name": "RICCI-SLEEP", "os": "Windows", "status": "offline", "busy": False,
+              "labels": [{"name": name} for name in BASE_LABELS | {"android-build"}],
+          }
+          target, reason = select_runner(
+              {"private": True}, "push", True, "auto", "android-build",
+              [runner], runner_name="RICCI-SLEEP",
+          )
+          assert (target, reason) == ("cloud", "runner-offline"), (target, reason)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"target={target}", file=output)
+          PY
+  fallback:
+    needs: route
+    if: needs.route.outputs.target == 'cloud'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify GitHub-hosted execution
+        env:
+          EXECUTION_ENVIRONMENT: ${{ runner.environment }}
+        run: test "$EXECUTION_ENVIRONMENT" = github-hosted
