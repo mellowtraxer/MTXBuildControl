@@ -22,15 +22,15 @@ jobs:
         run: |
           python3 - <<'PY'
           import os
-          from nexus.runner import BASE_LABELS, select_runner
+          from nexus.runner import select_runner
 
           runner = {
               "name": "RICCI-SLEEP", "os": "Windows", "status": "offline", "busy": False,
-              "labels": [{"name": name} for name in BASE_LABELS | {"android-build"}],
+              "labels": [{"name": name} for name in {"self-hosted", "Windows", "X64", "mtx-nexus-staged"}],
           }
           target, reason = select_runner(
               {"private": True}, "push", True, "auto", "android-build",
-              [runner], runner_name="RICCI-SLEEP",
+              [runner], runner_name="RICCI-SLEEP", runner_label="mtx-nexus-staged",
           )
           assert (target, reason) == ("cloud", "runner-offline"), (target, reason)
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
