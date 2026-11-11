@@ -68,41 +68,51 @@ def supervise(api, repo, worker, ref, sha, artifact_name, queue_seconds, executi
     reason = "worker-queue-timeout"
     try:
         while True:
-            run = api.request(run_path)
-            now = clock()
-            if run["status"] == "completed":
-                jobs = api.request(run_path + "/jobs")["jobs"]
-                if run["conclusion"] != "success":
-                    for job in jobs:
-                        if job.get("runner_name") != runner_name:
-                            continue
-                        if any(step.get("name") in build_steps and step.get("conclusion") == "failure"
-                               for step in job.get("steps", ())):
-                            return "failed", "worker-build-or-test-failed", run_id
-                    return "cloud", "worker-failed", run_id
-                if not any(job.get("conclusion") == "success" and job.get("runner_name") == runner_name
+            try:
+                run = api.request(run_path)
+                now = clock()
+                if run["status"] == "completed":
+                    jobs = api.request(run_path + "/jobs")["jobs"]
+                    if run["conclusion"] != "success":
+                        for job in jobs:
+                            if job.get("runner_name") != runner_name:
+                                continue
+                            if any(step.get("name") in build_steps and step.get("conclusion") == "failure"
+                                   for step in job.get("steps", ())):
+                                return "failed", "worker-build-or-test-failed", run_id
+                        return "cloud", "worker-failed", run_id
+                    if not any(job.get("conclusion") == "success" and job.get("runner_name") == runner_name
+                               for job in jobs):
+                        return "cloud", "worker-job-not-verified", run_id
+                    artifacts = list(api.pages(run_path + "/artifacts?" + urlencode({"name": artifact_name}),
+                                               "artifacts"))
+                    matches = [artifact for artifact in artifacts if artifact["name"] == artifact_name
+                               and not artifact["expired"] and artifact["size_in_bytes"] > 0]
+                    if len(matches) != 1:
+                        return "cloud", "worker-artifact-not-verified", run_id
+                    return "pc", "worker-succeeded", run_id
+                if execution_deadline is None and run["status"] == "in_progress":
+                    jobs = api.request(run_path + "/jobs")["jobs"]
+                    # A run can be "in_progress" while its PC job is still queued.
+                    if any(job["status"] == "in_progress" and job.get("runner_name") == runner_name
                            for job in jobs):
-                    return "cloud", "worker-job-not-verified", run_id
-                artifacts = list(api.pages(run_path + "/artifacts?" + urlencode({"name": artifact_name}),
-                                           "artifacts"))
-                matches = [artifact for artifact in artifacts if artifact["name"] == artifact_name
-                           and not artifact["expired"] and artifact["size_in_bytes"] > 0]
-                if len(matches) != 1:
-                    return "cloud", "worker-artifact-not-verified", run_id
-                return "pc", "worker-succeeded", run_id
-            if execution_deadline is None and run["status"] == "in_progress":
-                jobs = api.request(run_path + "/jobs")["jobs"]
-                # A run can be "in_progress" while its PC job is still queued.
-                if any(job["status"] == "in_progress" and job.get("runner_name") == runner_name
-                       for job in jobs):
-                    execution_deadline = clock() + execution_seconds
+                        execution_deadline = clock() + execution_seconds
+            except GitHubError as exc:
+                # A just-dispatched run or its jobs can briefly be absent.
+                if exc.status != 404:
+                    raise
+                now = clock()
             deadline = execution_deadline if execution_deadline is not None else queue_deadline
             if now >= deadline:
                 if execution_deadline is not None:
                     reason = "worker-execution-timeout"
                 break
             sleep(min(poll_seconds, deadline - now))
-    except (GitHubError, ValueError, KeyError, TypeError):
+    except GitHubError as exc:
+        print(f"Worker status request failed: HTTP {exc.status}")
+        reason = "worker-status-unavailable"
+    except (ValueError, KeyError, TypeError) as exc:
+        print(f"Worker status response could not be parsed: {type(exc).__name__}")
         reason = "worker-status-unavailable"
     try:
         api.request(run_path + "/cancel", {})
