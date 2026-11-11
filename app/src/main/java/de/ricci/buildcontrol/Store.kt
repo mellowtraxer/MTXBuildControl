@@ -36,7 +36,8 @@ class Store(context: Context) {
         val a=JSONArray(prefs.getString("projects",null) ?: "[]")
         val defaults = listOf(Project("mellowtraxer/RiccisTidalPlaylistCreator","feature/mtx-studio-core","MTX Studio"),Project("mellowtraxer/GarminSleepTasker","sleepsync-compose-v2","SleepSync"),Project("mellowtraxer/MarioChess3D","main","MarioChess3D"))
         val saved = (0 until a.length()).map { a.getJSONObject(it).let{Project(it.getString("repo"),it.getString("branch"),it.getString("name"),it.optLong("id").takeIf { id -> id > 0 },it.optBoolean("archived"))} }
-        return saved + defaults.filter { default -> saved.none { it.repo.equals(default.repo, ignoreCase=true) } }
+        val buildProjects = saved.filterNot { isProfileRepository(it.repo) }
+        return buildProjects + defaults.filter { default -> buildProjects.none { it.repo.equals(default.repo, ignoreCase=true) } }
     }
     fun saveProjects(projects: List<Project>) { val a=JSONArray(); projects.forEach{a.put(JSONObject().put("repo",it.repo).put("branch",it.branch).put("name",it.name).put("id",it.id).put("archived",it.archived))};prefs.edit().putString("projects",a.toString()).apply() }
     // The repository and branch form one independent runner setting.

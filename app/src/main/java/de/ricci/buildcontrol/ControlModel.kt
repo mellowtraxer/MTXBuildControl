@@ -124,6 +124,7 @@ class ControlModel(app: Application): AndroidViewModel(app) {
     fun saveProject(repo:String,branch:String,name:String)=work{
         val clean=repo.trim().removePrefix("https://github.com/").removeSuffix("/").removeSuffix(".git")
         require(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+").matches(clean)) { "Repository als Besitzer/Name angeben." }
+        require(!isProfileRepository(clean)) { "Das GitHub-Profil-Repository ist kein Build-Projekt." }
         val client=api ?: error("Zuerst GitHub verbinden.")
         val actualBranch=withContext(Dispatchers.IO){if(branch.isBlank())client.defaultBranch(clean) else branch.trim()}
         val existing = projects.firstOrNull { it.repo.equals(clean, true) }

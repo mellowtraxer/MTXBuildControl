@@ -52,6 +52,7 @@ class GitHub(private val token: String, private val base: String = "https://api.
         return (accessible + public)
             .distinctBy { it.getLong("id") }
             .filter { it.getString("full_name").substringBefore('/').equals(owner, true) }
+            .filterNot { isProfileRepository(it.getString("full_name")) }
             .map { Project(it.getString("full_name"), it.getString("default_branch"), it.getString("name"),
                 it.getLong("id"), it.optBoolean("archived")) }
     }
