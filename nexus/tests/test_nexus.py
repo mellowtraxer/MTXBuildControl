@@ -49,6 +49,8 @@ class Worker:
         self.fail_dispatch = fail_dispatch
         self.now = 0
         self.job_status = job_status
+        self.steps = []
+        self.runner_name = "RICCI"
         self.artifacts = artifacts
 
     def request(self, path, payload=None):
@@ -61,7 +63,7 @@ class Worker:
         if path.endswith("cancel"):
             return None
         if path.endswith("/jobs"):
-            return {"jobs": [{"status": self.job_status, "runner_name": "RICCI",
+            return {"jobs": [{"status": self.job_status, "runner_name": self.runner_name, "steps": self.steps,
                               "conclusion": "skipped" if self.job_status == "skipped" else "success"}]}
         return next(self.states)
 
@@ -71,9 +73,9 @@ class Worker:
     def sleep(self, seconds):
         self.now += seconds
 
-    def run(self):
+    def run(self, **kwargs):
         return supervise(self, "owner/private", "worker.yml", "main", "a"*40, "build-apk", 10, 15,
-                         clock=lambda: self.now, sleep=self.sleep)
+                         clock=lambda: self.now, sleep=self.sleep, **kwargs)
 
 
 class SupervisionTests(unittest.TestCase):
@@ -108,6 +110,28 @@ class SupervisionTests(unittest.TestCase):
         worker = Worker([], fail_dispatch=True)
         self.assertEqual(worker.run(), ("cloud", "dispatch-unconfirmed", None))
         self.assertEqual(len(worker.posts), 1)
+
+    def test_failed_build_is_not_repeated_in_cloud(self):
+        worker = Worker([{"status": "completed", "conclusion": "failure"}])
+        worker.steps = [{"name": "Gradle build", "conclusion": "failure"}]
+        self.assertEqual(worker.run(build_steps=["Gradle build"]),
+                         ("failed", "worker-build-or-test-failed", 42))
+        self.assertEqual(len(worker.posts), 1)
+
+    def test_failed_setup_still_falls_back(self):
+        worker = Worker([{"status": "completed", "conclusion": "failure"}])
+        worker.steps = [{"name": "Set up SDK", "conclusion": "failure"},
+                        {"name": "Gradle build", "conclusion": "skipped"}]
+        self.assertEqual(worker.run(build_steps=["Gradle build"]), ("cloud", "worker-failed", 42))
+
+    def test_named_repo_runner(self):
+        repo_runner = runner(name="RICCI-SLEEP")
+        self.assertEqual(select_runner({"private": True}, "push", True, "auto",
+                                       "android-build", [repo_runner], "RICCI-SLEEP"),
+                         ("pc", "runner-available"))
+        worker = Worker([{"status": "completed", "conclusion": "success"}])
+        worker.runner_name = "RICCI-SLEEP"
+        self.assertEqual(worker.run(runner_name="RICCI-SLEEP"), ("pc", "worker-succeeded", 42))
 
     def test_failed_worker_falls_back_without_cancelling(self):
         worker = Worker([{"status": "completed", "conclusion": "failure"}])
