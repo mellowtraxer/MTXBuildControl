@@ -86,6 +86,17 @@ class SupervisionTests(unittest.TestCase):
         self.assertEqual(len(worker.posts), 1)
         self.assertEqual(worker.posts[0][1]["inputs"]["source_sha"], "a"*40)
 
+    def test_new_worker_may_not_be_visible_immediately(self):
+        class DelayedWorker(Worker):
+            def request(self, path, payload=None):
+                if path.endswith("/runs/42") and self.now < 5:
+                    raise GitHubError(404)
+                return super().request(path, payload)
+
+        worker = DelayedWorker([{"status": "completed", "conclusion": "success"}])
+        self.assertEqual(worker.run(), ("pc", "worker-succeeded", 42))
+        self.assertEqual(len(worker.posts), 1)
+
     def test_success_requires_the_real_pc_job_and_artifact(self):
         success = {"status": "completed", "conclusion": "success"}
         self.assertEqual(Worker([success], job_status="skipped").run(),
