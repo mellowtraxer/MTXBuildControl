@@ -14,7 +14,8 @@ Administration read lists the repository's registered runners. Keep that
 credential in a server-side GitHub secret and scope it to the pilot repository.
 The trusted branch must be protected from unauthorized workflow changes.
 
-A runner qualifies only if it reports idle and online, is Windows RICCI, and
+A runner qualifies only if it reports idle and online, matches the Windows runner name
+(`--runner-name`, default `RICCI`), and
 advertises the exact labels selected by the worker, including the adapter's
 capability label. Add capability labels only after testing the actual toolchain
 on the existing installation. The worker must also recheck its tools before
@@ -23,10 +24,16 @@ building because a label can outlive the installed toolchain.
 The PC worker is a separate workflow with an immutable source SHA input. It must
 exist on the default branch for dispatch. Bind it to the private repository and
 trusted branch, verify the SHA belongs to that branch, and deny all release and
-signing access. The hosted controller waits up to 90 seconds in the queue and
-25 minutes once the worker starts, then requests cancellation of the exact run.
+signing access. The hosted controller uses a 60-second queue budget and
+25-minute execution budget by default (`--queue-seconds` and `--execution-seconds`), then requests cancellation of the exact run.
 A disconnected worker can take longer to receive cancellation. Never use an
 artifact from an unconfirmed or discarded attempt.
+
+Pass `--build-step` for each exact compilation or test step name in the worker.
+A failed matching step ends the controller job with exit code 1 and
+`target=failed`. Cloud jobs must run only for `target=cloud`. Keep SDK setup
+and artifact transport in distinct steps so their failures can fall back.
+`pc` and `auto` both prefer the PC with cloud fallback. `github` bypasses it.
 
 Run the hosted build for the same source SHA when the controller outputs
 `target=cloud`. When it outputs `target=pc`, use only the artifacts of the
